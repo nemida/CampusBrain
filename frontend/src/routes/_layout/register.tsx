@@ -56,7 +56,7 @@ function RegisterPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+    <div className="flex min-h-screen items-start justify-center bg-background px-4 pb-10 pt-8 sm:pt-12">
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center">
           <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-2xl bg-primary shadow-sm">

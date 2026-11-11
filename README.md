@@ -5,6 +5,13 @@
 
 An academic portal for university students. It brings previous year question papers (PYQs), syllabus, practice tools and an AI study coach together in one place. Students browse papers by branch, semester and subject. They find real past questions by topic, practise with generated MCQs and spaced-repetition flashcards, and build day-by-day study plans. An AI agent can also build a full mock exam paper.
 
+## Demo Accounts
+
+| Email                     | Password     | Role    |
+| ------------------------- | ------------ | ------- |
+| admin@campusbrain.edu     | `admin`      | ADMIN   |
+| teacher@campusbrain.edu   | `teacher123` | TEACHER |
+
 ---
 
 ## Chapter 2: Problem Statement
