@@ -1,0 +1,488 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Design system.
+ *
+ * Direction: a well-kept study notebook. Warm paper, ink-dark text, one deep
+ * green accent, a yellow highlighter for emphasis, a serif for headlines,
+ * hairline borders instead of shadows. No gradients, no glow.
+ *
+ * All colors MUST use oklch. Register new semantic colors in :root, .dark and
+ * @theme inline.
+ */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-highlight: var(--highlight);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --font-display: var(--font-display);
+}
+
+:root {
+  --shadow-soft: 0 1px 2px oklch(0.25 0.03 255 / 5%), 0 6px 16px -10px oklch(0.25 0.03 255 / 14%);
+  --shadow-lift: 0 2px 4px oklch(0.25 0.03 255 / 6%), 0 12px 24px -12px oklch(0.25 0.03 255 / 20%);
+  --radius: 0.625rem;
+  --font-sans: "Inter Tight", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Fraunces", "Iowan Old Style", Georgia, serif;
+
+  --background: oklch(0.975 0.012 90); /* paper */
+  --foreground: oklch(0.22 0.02 255); /* ink */
+  --card: oklch(0.99 0.006 90);
+  --card-foreground: oklch(0.22 0.02 255);
+  --popover: oklch(0.99 0.006 90);
+  --popover-foreground: oklch(0.22 0.02 255);
+  --primary: oklch(0.4 0.09 165); /* deep green */
+  --primary-foreground: oklch(0.98 0.01 90);
+  --secondary: oklch(0.945 0.016 90);
+  --secondary-foreground: oklch(0.22 0.02 255);
+  --muted: oklch(0.955 0.014 90);
+  --muted-foreground: oklch(0.48 0.02 255);
+  --accent: oklch(0.94 0.03 150);
+  --accent-foreground: oklch(0.33 0.08 165);
+  --highlight: oklch(0.91 0.15 98); /* highlighter yellow */
+  --destructive: oklch(0.55 0.2 27);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.88 0.015 90);
+  --input: oklch(0.88 0.015 90);
+  --ring: oklch(0.4 0.09 165);
+  --chart-1: oklch(0.55 0.12 165);
+  --chart-2: oklch(0.7 0.14 70);
+  --chart-3: oklch(0.5 0.1 250);
+  --chart-4: oklch(0.6 0.16 25);
+  --chart-5: oklch(0.45 0.08 300);
+  --sidebar: oklch(0.96 0.012 90);
+  --sidebar-foreground: oklch(0.22 0.02 255);
+  --sidebar-primary: oklch(0.4 0.09 165);
+  --sidebar-primary-foreground: oklch(0.98 0.01 90);
+  --sidebar-accent: oklch(0.94 0.03 150);
+  --sidebar-accent-foreground: oklch(0.33 0.08 165);
+  --sidebar-border: oklch(0.88 0.015 90);
+  --sidebar-ring: oklch(0.4 0.09 165);
+}
+
+.dark {
+  --shadow-soft: 0 1px 2px oklch(0 0 0 / 30%);
+  --shadow-lift: 0 4px 16px oklch(0 0 0 / 40%);
+  --background: oklch(0.2 0.015 255);
+  --foreground: oklch(0.95 0.01 90);
+  --card: oklch(0.24 0.016 255);
+  --card-foreground: oklch(0.95 0.01 90);
+  --popover: oklch(0.24 0.016 255);
+  --popover-foreground: oklch(0.95 0.01 90);
+  --primary: oklch(0.78 0.12 160);
+  --primary-foreground: oklch(0.2 0.03 165);
+  --secondary: oklch(0.3 0.016 255);
+  --secondary-foreground: oklch(0.95 0.01 90);
+  --muted: oklch(0.28 0.016 255);
+  --muted-foreground: oklch(0.7 0.02 255);
+  --accent: oklch(0.3 0.04 165);
+  --accent-foreground: oklch(0.92 0.05 160);
+  --highlight: oklch(0.55 0.1 98);
+  --destructive: oklch(0.7 0.18 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.78 0.12 160);
+  --chart-1: oklch(0.72 0.13 160);
+  --chart-2: oklch(0.78 0.14 75);
+  --chart-3: oklch(0.7 0.11 250);
+  --chart-4: oklch(0.7 0.16 25);
+  --chart-5: oklch(0.7 0.1 300);
+  --sidebar: oklch(0.24 0.016 255);
+  --sidebar-foreground: oklch(0.95 0.01 90);
+  --sidebar-primary: oklch(0.78 0.12 160);
+  --sidebar-primary-foreground: oklch(0.2 0.03 165);
+  --sidebar-accent: oklch(0.3 0.04 165);
+  --sidebar-accent-foreground: oklch(0.92 0.05 160);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.78 0.12 160);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-background);
+    background-image: radial-gradient(
+      ellipse 80% 320px at 50% -80px,
+      color-mix(in oklch, var(--color-primary) 9%, transparent),
+      transparent
+    );
+    background-repeat: no-repeat;
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Form controls: soft focus ring, custom select chevron, readable placeholders */
+  input,
+  select,
+  textarea {
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease,
+      background-color 0.15s ease;
+  }
+  input:focus,
+  select:focus,
+  textarea:focus {
+    box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-primary) 18%, transparent);
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: color-mix(in oklch, var(--color-muted-foreground) 70%, transparent);
+  }
+  select:not([multiple]) {
+    appearance: none;
+    cursor: pointer;
+    padding-right: 2rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.7rem center;
+  }
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--color-primary);
+  }
+
+  h1,
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.015em;
+  }
+
+  ::selection {
+    background: var(--highlight);
+    color: oklch(0.22 0.02 255);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+
+  /* Cards: paper surface, hairline border, a whisper of depth; hover nudges the border. */
+  main section.rounded-lg,
+  main article.rounded-lg {
+    background-color: var(--color-card);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-soft);
+    transition:
+      border-color 0.2s ease,
+      box-shadow 0.2s ease;
+  }
+  main article.rounded-lg:hover {
+    border-color: color-mix(in oklch, var(--color-primary) 55%, var(--color-border));
+    box-shadow: var(--shadow-lift);
+  }
+
+  button.bg-primary,
+  a.bg-primary {
+    transition:
+      background-color 0.15s ease,
+      transform 0.1s ease,
+      opacity 0.15s ease;
+  }
+  button.bg-primary:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+}
+
+/*
+ * Colour tones. Give an element `style={toneStyle(key)}` (src/lib/tone.ts) or a .tone-* class, then use the
+ * tone utilities below. One hue drives the whole family, so a subject keeps the same colour everywhere.
+ */
+@layer components {
+  [style*="--hue"],
+  .tone-green,
+  .tone-blue,
+  .tone-amber,
+  .tone-rose,
+  .tone-violet,
+  .tone-teal {
+    --tone: oklch(0.56 0.13 var(--hue));
+    --tone-soft: oklch(0.955 0.035 var(--hue));
+    --tone-line: oklch(0.86 0.06 var(--hue));
+    --tone-ink: oklch(0.38 0.1 var(--hue));
+  }
+  .dark [style*="--hue"],
+  .dark .tone-green,
+  .dark .tone-blue,
+  .dark .tone-amber,
+  .dark .tone-rose,
+  .dark .tone-violet,
+  .dark .tone-teal {
+    --tone: oklch(0.74 0.12 var(--hue));
+    --tone-soft: oklch(0.3 0.05 var(--hue));
+    --tone-line: oklch(0.42 0.07 var(--hue));
+    --tone-ink: oklch(0.88 0.07 var(--hue));
+  }
+  .tone-green { --hue: 160; }
+  .tone-blue { --hue: 250; }
+  .tone-amber { --hue: 70; }
+  .tone-rose { --hue: 20; }
+  .tone-violet { --hue: 300; }
+  .tone-teal { --hue: 200; }
+
+  .tone-bg-soft { background-color: var(--tone-soft); }
+  .tone-bg { background-color: var(--tone); color: oklch(0.99 0 0); }
+  .tone-text { color: var(--tone-ink); }
+  .tone-border { border-color: var(--tone-line); }
+  .tone-accent-l { border-left: 3px solid var(--tone); }
+  .tone-dot { background-color: var(--tone); }
+
+  /* Surfaces */
+  .card {
+    background-color: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-soft);
+  }
+  .card-flat {
+    background-color: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+  }
+
+  /* Chips / pills */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border-radius: 9999px;
+    padding: 0.125rem 0.625rem;
+    font-size: 0.75rem;
+    line-height: 1.25rem;
+    font-weight: 500;
+    background-color: var(--color-muted);
+    color: var(--color-muted-foreground);
+    border: 1px solid transparent;
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease,
+      border-color 0.15s ease;
+  }
+  .chip-tone {
+    background-color: var(--tone-soft);
+    color: var(--tone-ink);
+    border-color: var(--tone-line);
+  }
+  button.chip:hover,
+  a.chip:hover {
+    border-color: var(--tone, var(--color-primary));
+    color: var(--tone-ink, var(--color-primary));
+  }
+  .chip-active {
+    background-color: var(--color-primary);
+    color: var(--color-primary-foreground);
+  }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    height: 2.25rem;
+    padding: 0 0.875rem;
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
+    font-weight: 500;
+    white-space: nowrap;
+    border: 1px solid transparent;
+    transition:
+      background-color 0.15s ease,
+      border-color 0.15s ease,
+      color 0.15s ease,
+      opacity 0.15s ease,
+      transform 0.1s ease;
+  }
+  .btn:active:not(:disabled) { transform: translateY(1px); }
+  .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+  .btn-sm { height: 2rem; padding: 0 0.625rem; font-size: 0.75rem; }
+  .btn-primary {
+    background-color: var(--color-primary);
+    color: var(--color-primary-foreground);
+    box-shadow: 0 1px 2px oklch(0.2 0.05 165 / 25%);
+  }
+  .btn-primary:hover:not(:disabled) { background-color: color-mix(in oklch, var(--color-primary) 88%, black); }
+  .btn-outline {
+    background-color: var(--color-card);
+    border-color: var(--color-border);
+    color: var(--color-foreground);
+  }
+  .btn-outline:hover:not(:disabled) { background-color: var(--color-muted); }
+  .btn-ghost { color: var(--color-muted-foreground); }
+  .btn-ghost:hover:not(:disabled) { background-color: var(--color-muted); color: var(--color-foreground); }
+  .btn-danger { color: var(--color-destructive); }
+  .btn-danger:hover:not(:disabled) { background-color: color-mix(in oklch, var(--color-destructive) 10%, transparent); }
+  .btn-icon { width: 2rem; padding: 0; }
+
+  /* Form fields */
+  .field {
+    display: block;
+    width: 100%;
+    height: 2.5rem;
+    padding: 0 0.75rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    background-color: var(--color-card);
+    color: var(--color-foreground);
+    font-size: 0.875rem;
+    outline: none;
+  }
+  .field:focus { border-color: var(--color-primary); }
+  textarea.field { height: auto; padding: 0.5rem 0.75rem; resize: vertical; }
+  .field-sm { height: 2rem; font-size: 0.75rem; padding: 0 0.625rem; }
+  .field-label { display: block; margin-bottom: 0.375rem; font-size: 0.75rem; font-weight: 500; color: var(--color-foreground); }
+
+  /* Page scaffolding */
+  .page-eyebrow {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-primary);
+  }
+
+  /* Segmented control (a few exclusive options as pills instead of a dropdown) */
+  .segmented {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border-radius: 9999px;
+    background-color: var(--color-muted);
+  }
+  .segmented > button {
+    height: 1.75rem;
+    padding: 0 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-muted-foreground);
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  .segmented > button:hover { color: var(--color-foreground); }
+  .segmented > button[aria-pressed="true"] {
+    background-color: var(--color-card);
+    color: var(--color-foreground);
+    box-shadow: var(--shadow-soft);
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: var(--font-display);
+  }
+
+  /* Highlighter-pen underline for one key word per headline */
+  .marker {
+    background-image: linear-gradient(transparent 58%, var(--highlight) 58%, var(--highlight) 92%, transparent 92%);
+    padding: 0 0.12em;
+    margin: 0 -0.12em;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+
+  /* Ruled-notebook paper */
+  .bg-ruled {
+    background-image: repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 31px,
+      oklch(0.8 0.05 240 / 35%) 31px,
+      oklch(0.8 0.05 240 / 35%) 32px
+    );
+  }
+
+  /* Paper-ish tilted sticker */
+  .tilt-l {
+    transform: rotate(-1.5deg);
+  }
+  .tilt-r {
+    transform: rotate(1.2deg);
+  }
+
+  .animate-rise {
+    animation: rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  .delay-1 {
+    animation-delay: 0.08s;
+  }
+  .delay-2 {
+    animation-delay: 0.16s;
+  }
+  .delay-3 {
+    animation-delay: 0.24s;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

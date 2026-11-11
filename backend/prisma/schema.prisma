@@ -1,0 +1,435 @@
+// CampusBrain — Prisma schema
+// Run: prisma migrate dev --name <migration_name>
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [vector]
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Auth / Users
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum Role {
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+model User {
+  id           String        @id @default(cuid())
+  email        String        @unique
+  passwordHash String
+  name         String
+  role         Role          @default(STUDENT)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  refreshTokens    RefreshToken[]
+  resources        Resource[]       @relation("UploadedBy")
+  studyPlans       StudyPlan[]
+  groupMemberships GroupMembership[]
+  ownedGroups      StudyGroup[]     @relation("GroupOwner")
+  userActivities   UserActivity[]
+  mcqSessions      MCQSession[]
+  flashcardSets    FlashcardSet[]
+  profile          UserProfile?
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// User Profile (year, branch, enrolled subjects)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model UserProfile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  year      Int?                          // 1-4
+  branchId  String?
+  semester  Int?                          // current semester 1-8
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User    @relation(fields: [userId],   references: [id], onDelete: Cascade)
+  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  subjects UserProfileSubject[]
+}
+
+model UserProfileSubject {
+  id        String @id @default(cuid())
+  profileId String
+  subjectId String
+
+  profile UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  subject Subject     @relation(fields: [subjectId],  references: [id], onDelete: Cascade)
+
+  @@unique([profileId, subjectId])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Academic hierarchy: Branch → Semester → Subject → Resource
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Branch {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  code      String     @unique
+  createdAt DateTime   @default(now())
+
+  subjects  Subject[]
+  syllabi   Syllabus[]
+  profiles  UserProfile[]
+}
+
+model Subject {
+  id        String     @id @default(cuid())
+  code      String                         // "ICT-101"
+  name      String                         // "Programming for Problem Solving"
+  semester  Int                            // 1–8
+  branchId  String
+
+  branch    Branch     @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  resources Resource[]
+  syllabusItems SyllabusItem[]
+  studyPlanDays StudyPlanDay[]
+  profileSubjects UserProfileSubject[]
+
+  @@unique([code, branchId])
+  @@index([branchId, semester])
+}
+
+enum ExamType {
+  MID_SEM
+  END_SEM
+}
+
+enum ResourceType {
+  PAPER       // PYQ paper (default use-case)
+  NOTES
+  SYLLABUS
+}
+
+model Resource {
+  id           String       @id @default(cuid())
+  subjectId    String
+  uploadedById String
+  paperQuestions PaperQuestion[]
+  type         ResourceType @default(PAPER)
+  title        String                         // e.g. "Winter 2023 End-Sem Exam"
+  year         Int
+  examType     ExamType
+  fileUrl      String                         // Cloudinary secure URL
+  publicId     String                         // Cloudinary public_id for deletion
+  fileSizeBytes Int
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  subject    Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  uploadedBy User    @relation("UploadedBy", fields: [uploadedById], references: [id])
+  userActivities UserActivity[]
+  chunks         ResourceChunk[]
+
+  @@index([subjectId])
+  @@index([year])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RAG — vector chunks for semantic search
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One text chunk extracted from a PYQ PDF, with its embedding vector.
+model ResourceChunk {
+  id         String   @id @default(cuid())
+  resourceId String
+  subjectId  String   // denormalised for fast filter-then-search queries
+  chunkIndex Int      // 0-based order within the resource
+  pageNumber Int?
+  embedding Unsupported("vector(768)")?
+  text       String
+  /// pgvector column — 768 dims for Gemini text-embedding-004
+  /// (Prisma raw SQL handles reads/writes; this column is managed via migration SQL)
+  createdAt  DateTime @default(now())
+
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@index([resourceId])
+  @@index([subjectId])
+}
+
+/// One text chunk from a SyllabusItem (unit title + topics), with its embedding vector.
+model SyllabusChunk {
+  id             String   @id @default(cuid())
+  syllabusItemId String
+  subjectId      String?  // denormalised
+  text           String
+  embedding Unsupported("vector(768)")?
+  /// pgvector column — 768 dims (managed via migration SQL)
+  createdAt      DateTime @default(now())
+
+  syllabusItem SyllabusItem @relation(fields: [syllabusItemId], references: [id], onDelete: Cascade)
+
+  @@index([syllabusItemId])
+  @@index([subjectId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Syllabus (Teacher-managed, per branch per semester)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Syllabus {
+  id          String   @id @default(cuid())
+  branchId    String
+  semester    Int
+  scheme      String   @default("2021")  // curriculum scheme year e.g. "2021", "2024"
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String
+
+  branch   Branch         @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  items    SyllabusItem[]
+
+  @@unique([branchId, semester, scheme])
+  @@index([branchId, semester])
+}
+
+model SyllabusItem {
+  id          String   @id @default(cuid())
+  syllabusId  String
+  subjectId   String?
+  unitNumber  Int                         // unit 1, 2, 3…
+  title       String                      // "Unit 1: Introduction to C"
+  topics      String[]                    // ["Variables", "Data Types", "Operators"]
+  hours       Int?                        // teaching hours allocated
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  syllabus Syllabus  @relation(fields: [syllabusId], references: [id], onDelete: Cascade)
+  subject  Subject?  @relation(fields: [subjectId],  references: [id], onDelete: SetNull)
+  chunks   SyllabusChunk[]
+
+  @@index([syllabusId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Study Plans
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum PlanStatus {
+  ACTIVE
+  COMPLETED
+  PAUSED
+}
+
+model StudyPlan {
+  id          String     @id @default(cuid())
+  userId      String
+  title       String
+  examDate    DateTime?
+  totalDays   Int
+  status      PlanStatus @default(ACTIVE)
+  groupId     String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  config      Json?
+  user  User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group StudyGroup?    @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  days  StudyPlanDay[]
+
+  @@index([userId])
+  @@index([groupId])
+}
+
+model StudyPlanDay {
+  id          String   @id @default(cuid())
+  studyPlanId String
+  dayNumber   Int                      // 1-based
+  date        DateTime?
+  subjectId   String?
+  topics      String[]                 // list of topic strings
+  isCompleted Boolean  @default(false)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  sessions    Json?
+  studyPlan StudyPlan @relation(fields: [studyPlanId], references: [id], onDelete: Cascade)
+  subject   Subject?  @relation(fields: [subjectId],   references: [id], onDelete: SetNull)
+
+  @@index([studyPlanId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Study Groups
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum GroupRole {
+  OWNER
+  MEMBER
+}
+
+model StudyGroup {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  inviteCode  String   @unique @default(cuid())
+  ownerId     String
+  branch      String?
+  semester    Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  owner       User              @relation("GroupOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  memberships GroupMembership[]
+  studyPlans  StudyPlan[]
+
+  @@index([ownerId])
+}
+
+model GroupMembership {
+  id        String    @id @default(cuid())
+  groupId   String
+  userId    String
+  role      GroupRole @default(MEMBER)
+  joinedAt  DateTime  @default(now())
+
+  group StudyGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User       @relation(fields: [userId],  references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// User Activity (for personalised dashboard)
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum ActivityType {
+  VIEW
+  DOWNLOAD
+  QUIZ_ATTEMPT
+  PLAN_DAY_COMPLETE
+}
+
+model UserActivity {
+  id         String       @id @default(cuid())
+  userId     String
+  resourceId String?
+  activityType ActivityType
+  metadata   Json?                         // e.g. { score: 80, topic: "Pointers" }
+  createdAt  DateTime     @default(now())
+
+  user     User      @relation(fields: [userId],     references: [id], onDelete: Cascade)
+  resource Resource? @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([resourceId])
+  @@index([userId, activityType])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MCQ Sessions & Questions
+// ─────────────────────────────────────────────────────────────────────────────
+
+model MCQSession {
+  id         String   @id @default(cuid())
+  userId     String
+  subjectId  String?
+  topic      String?
+  totalQ     Int
+  correctQ   Int      @default(0)
+  score      Float    @default(0)   // 0-100
+  timeTakenS Int?                   // seconds
+  createdAt  DateTime @default(now())
+
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  questions MCQQuestion[]
+
+  @@index([userId])
+}
+
+model MCQQuestion {
+  id            String   @id @default(cuid())
+  sessionId     String
+  question      String
+  options       String[]              // 4 options
+  correctIndex  Int                   // 0-3
+  chosenIndex   Int?                  // null if unanswered
+  explanation   String?
+  topic         String?
+  createdAt     DateTime @default(now())
+
+  session MCQSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Flashcard Sets & Cards
+// ─────────────────────────────────────────────────────────────────────────────
+
+model FlashcardSet {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  subjectId String?
+  topic     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cards Flashcard[]
+
+  @@index([userId])
+}
+
+model Flashcard {
+  id          String   @id @default(cuid())
+  setId       String
+  front       String
+  back        String
+  // SM-2 spaced repetition fields
+  easeFactor  Float    @default(2.5)
+  interval    Int      @default(1)    // days until next review
+  repetitions Int      @default(0)
+  nextReview  DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  set FlashcardSet @relation(fields: [setId], references: [id], onDelete: Cascade)
+
+  @@index([setId])
+  @@index([nextReview])
+}
+
+model PaperQuestion {
+  id            String   @id @default(cuid())
+  resourceId    String
+  subjectId     String
+  questionIndex Int
+  label         String?
+  marks         Int?
+  text          String
+  pageNumber    Int?
+  source        String?
+  embedding     Unsupported("vector(768)")?
+  createdAt     DateTime @default(now())
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  @@index([resourceId])
+  @@index([subjectId])
+}
