@@ -1,5 +1,8 @@
 # CampusBrain
 
+(image.png)
+
+
 An academic portal for university students. It brings previous year question papers (PYQs), syllabus, practice tools and an AI study coach together in one place. Students browse papers by branch, semester and subject. They find real past questions by topic, practise with generated MCQs and spaced-repetition flashcards, and build day-by-day study plans. An AI agent can also build a full mock exam paper.
 
 ---
