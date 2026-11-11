@@ -425,9 +425,9 @@
     font-family: var(--font-display);
   }
 
-  /* Highlighter-pen underline for one key word per headline */
+  /* Highlighter-pen stroke through the middle of the text */
   .marker {
-    background-image: linear-gradient(transparent 58%, var(--highlight) 58%, var(--highlight) 92%, transparent 92%);
+    background-image: linear-gradient(transparent 24%, var(--highlight) 24%, var(--highlight) 82%, transparent 82%);
     padding: 0 0.12em;
     margin: 0 -0.12em;
     -webkit-box-decoration-break: clone;

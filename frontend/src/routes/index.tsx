@@ -127,6 +127,7 @@ const samplePapers: [SamplePaper, ...SamplePaper[]] = [
       { q: "State and prove the time-shifting property of Fourier Transform.", marks: "5M" },
       {
         q: "Find Nyquist rate and interval for x(t) = sinc(200t).",
+        highlight: "Find Nyquist rate and interval",
         marks: "8M",
         freq: "Asked 3× since 2022",
       },
@@ -144,6 +145,7 @@ const samplePapers: [SamplePaper, ...SamplePaper[]] = [
       { q: "Derive the power flow equations for an n-bus system.", marks: "10M" },
       {
         q: "Compare Gauss-Seidel and Newton-Raphson load flow methods.",
+        highlight: "Compare Gauss-Seidel and Newton-Raphson",
         marks: "8M",
         freq: "Asked 5× in a row",
       },
