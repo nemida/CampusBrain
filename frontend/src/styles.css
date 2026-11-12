@@ -486,3 +486,29 @@
     transition: none !important;
   }
 }
+
+/* ── Chat scrollbar ─────────────────────────────────────────────────────────
+   Scoped to .chat-scroll so it doesn't affect the rest of the app.
+   WebKit (Chrome, Safari, Edge) uses ::-webkit-scrollbar.
+   Firefox uses scrollbar-width / scrollbar-color.
+*/
+.chat-scroll {
+  /* Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+.chat-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.chat-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chat-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--color-border);
+  border-radius: 9999px;
+  border-right: 3px solid transparent;
+  background-clip: padding-box;
+}
+.chat-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklch, var(--color-primary) 40%, var(--color-border));
+}

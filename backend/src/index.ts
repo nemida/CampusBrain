@@ -21,6 +21,20 @@ import flashcardsRouter from "./routes/flashcards.js";
 import profileRouter from "./routes/profile.js";
 import questionsRouter from "./routes/questions.js";
 import agentRouter from "./routes/agent.js";
+
+// ── Safety net ───────────────────────────────────────────────────────────────
+// LangGraph / Gemini can emit stream-parse errors as unhandled rejections that
+// bypass the agent's try/catch. Log and continue rather than crashing.
+process.on("unhandledRejection", (reason) => {
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  // Only swallow errors that originate from known AI-stream internals.
+  if (/GoogleGenerativeAI|Failed to parse stream|pregelTask/i.test(msg)) {
+    console.error("[Process] Swallowed AI stream rejection:", msg);
+  } else {
+    // Re-throw anything unrelated so real bugs still surface.
+    console.error("[Process] Unhandled rejection:", reason);
+  }
+});
 const app = express();
 
 // Behind a reverse proxy (Render, Railway, Fly…) the client IP comes from X-Forwarded-For;

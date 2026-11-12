@@ -59,6 +59,22 @@ export async function chatComplete(
   messages: ChatMessage[],
   jsonMode = true,
 ): Promise<ChatResult | null> {
+  // Groq (and OpenAI) require the word "json" to appear somewhere in the messages
+  // when response_format json_object is used. Enforce this here so callers don't
+  // have to remember.
+  let effectiveMessages = messages;
+  if (jsonMode) {
+    const allText = messages.map((m) => m.content).join(" ");
+    if (!/json/i.test(allText)) {
+      // Append a silent instruction to the last user message.
+      effectiveMessages = messages.map((m, i) =>
+        i === messages.length - 1 && m.role === "user"
+          ? { ...m, content: `${m.content}\n\nReturn your answer as JSON.` }
+          : m,
+      );
+    }
+  }
+
   if (env.GROQ_API_KEY) {
     const { default: Groq } = await import("groq-sdk");
     const groq = new Groq({ apiKey: env.GROQ_API_KEY, maxRetries: 0 });
@@ -73,7 +89,7 @@ export async function chatComplete(
         try {
           const completion = await groq.chat.completions.create({
             model,
-            messages,
+            messages: effectiveMessages,
             temperature: 0.4,
             max_tokens: MAX_TOKENS,
             ...(jsonMode ? { response_format: { type: "json_object" as const } } : {}),
@@ -109,7 +125,7 @@ export async function chatComplete(
 
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
-        messages,
+        messages: effectiveMessages,
         temperature: 0.4,
         ...(jsonMode ? { response_format: { type: "json_object" as const } } : {}),
       });

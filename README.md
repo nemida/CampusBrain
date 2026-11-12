@@ -64,7 +64,7 @@ Teachers and admins also need a simple way to upload papers and maintain the syl
 | FR-11 | Study groups         | Create a group with an invite code, join with a code, and share plans among members.                                             |
 | FR-12 | Profile              | Students set year, branch and semester, and enrol in subjects, which personalises the rest of the app.                           |
 | FR-13 | Dashboard            | A personalised dashboard shows activity (views, downloads, quiz attempts, plan-day completions) and progress.                    |
-| FR-14 | AI agent             | A chat agent streams its tool calls, tool results and answer tokens. It can search papers, find common topics, and generate quizzes, flashcards and a downloadable mock paper. |
+| FR-14 | AI agent             | A chat agent streams its tool calls, tool results and answer tokens. It can search papers, find common topics, generate quizzes, flashcards and a downloadable mock paper, list available papers, fetch all questions from a specific paper, and generate model answers for individual questions. |
 | FR-15 | Bot handoff          | The backend returns the URL of an external AI bot service for chatting with a paper.                                             |
 | FR-16 | Health check         | `GET /api/health` reports service status for Docker and load balancers.                                                          |
 
@@ -305,7 +305,11 @@ flowchart LR
 | Agent         | `routes/agent.ts`, `lib/agent.ts`, `lib/agentTools.ts`, `lib/mockPaper.ts` | LangGraph ReAct agent streamed over SSE, with tools listed below.                    |
 | Bot handoff   | `routes/bot.ts`                             | Returns the external bot URL.                                                                                       |
 
-**Agent tools:** `search_papers`, `search_questions`, `get_common_topics`, `build_mock_paper`, `get_syllabus`, `get_mcq_history`, `generate_mcq`, `generate_flashcards`.
+**Agent tools:** `search_papers`, `search_questions`, `get_common_topics`, `build_mock_paper`, `get_syllabus`, `get_mcq_history`, `generate_mcq`, `generate_flashcards`, `list_papers`, `get_paper_questions`, `answer_question`.
+
+- `list_papers` — lists available past exam papers for a subject (ID, year, exam type, extracted question count). Used to navigate to a specific paper before fetching its questions.
+- `get_paper_questions` — fetches all extracted questions from a specific paper by ID. Returns question label, marks, and full text in order.
+- `answer_question` — generates a marks-aware model answer for any question. Pulls 6 RAG chunks (papers + syllabus) as grounding context; adapts answer depth to the marks allocated (short ≤ 2, medium ≤ 5, long 6+).
 
 **Operational scripts (`backend/scripts`):** `backfill.ts` (re-ingest resources), `backfillQuestions.ts` (re-extract questions), `bulkUpload.ts` (batch upload papers), `buildTopicProfiles.ts` (optional: precompute topic profiles for every syllabus topic; safe to re-run, skips topics already cached).
 
@@ -769,7 +773,6 @@ classDiagram
     AgentTools --> MockPaper
     AgentTools --> AI
     AgentTools --> Prisma
-    QuestionsRoute --> PyqSearch
     QuestionsRoute --> QuestionSearch
     PyqSearch --> TopicProfileLib
     PyqSearch --> QuestionSearch

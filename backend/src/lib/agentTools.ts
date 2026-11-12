@@ -34,6 +34,8 @@ const PAPER_CHUNKS = 4; // excerpts returned by search_papers
 const PAPER_CHUNK_CHARS = 300;
 const QUESTIONS_PER_TOPIC = 4;
 const QUESTION_CHARS = 200;
+const ANSWER_CONTEXT_CHUNKS = 6; // RAG chunks used to ground model answers
+const ANSWER_QUESTION_CHARS = 600; // max question length forwarded to the LLM
 
 const clamp = (n: number, min: number, max: number) =>
   Math.min(Math.max(Math.trunc(Number.isFinite(n) ? n : min), min), max);
@@ -493,6 +495,169 @@ Return a JSON object: {"cards":[{"front":"","back":""}]}`;
     },
   );
 
+  // ── list_papers ──────────────────────────────────────────────────────────────
+  // Lets the agent (and student) know what papers are available before diving in.
+  const listPapers = tool(
+    async ({ subjectId }) => {
+      try {
+        const papers = await prisma.resource.findMany({
+          where: { subjectId, type: "PAPER" },
+          orderBy: [{ year: "desc" }, { examType: "asc" }],
+          select: {
+            id: true,
+            title: true,
+            year: true,
+            examType: true,
+            fileUrl: true,
+            _count: { select: { paperQuestions: true } },
+          },
+        });
+        if (papers.length === 0) {
+          return "No papers have been uploaded for this subject yet. Suggest the student or a teacher uploads some.";
+        }
+        return JSON.stringify(
+          papers.map((p) => ({
+            id: p.id,
+            title: p.title,
+            year: p.year,
+            examType: p.examType,
+            questions: p._count.paperQuestions,
+            fileUrl: p.fileUrl,
+          })),
+        );
+      } catch (err) {
+        return `Failed to list papers: ${errMsg(err)}`;
+      }
+    },
+    {
+      name: "list_papers",
+      description:
+        "List the past exam papers available for a subject (year, exam type, question count, paper ID, and a fileUrl to the PDF). When presenting papers to the student, format each one as a markdown link: [Year ExamType](fileUrl) so they can open the PDF in a new tab.",
+      schema: z.object({
+        subjectId: z.string().describe("Subject ID"),
+      }),
+    },
+  );
+
+  // ── get_paper_questions ───────────────────────────────────────────────────────
+  // Fetches all questions from a specific paper so the agent can present or answer them.
+  const getPaperQuestions = tool(
+    async ({ paperId }) => {
+      try {
+        const resource = await prisma.resource.findUnique({
+          where: { id: paperId },
+          select: {
+            title: true,
+            year: true,
+            examType: true,
+            subject: { select: { code: true, name: true } },
+            paperQuestions: {
+              orderBy: { questionIndex: "asc" },
+              select: {
+                id: true,
+                questionIndex: true,
+                label: true,
+                marks: true,
+                text: true,
+              },
+            },
+          },
+        });
+        if (!resource) return "Paper not found. Use list_papers to get valid paper IDs.";
+        if (resource.paperQuestions.length === 0) {
+          return `The paper "${resource.title}" exists but has no extracted questions yet. It may still be processing.`;
+        }
+        return JSON.stringify({
+          paper: `${resource.subject.code} ${resource.subject.name} — ${resource.year} ${resource.examType}`,
+          title: resource.title,
+          totalQuestions: resource.paperQuestions.length,
+          questions: resource.paperQuestions.map((q) => ({
+            id: q.id,
+            index: q.questionIndex,
+            label: q.label ?? null,
+            marks: q.marks ?? null,
+            text: q.text,
+          })),
+        });
+      } catch (err) {
+        return `Failed to fetch paper questions: ${errMsg(err)}`;
+      }
+    },
+    {
+      name: "get_paper_questions",
+      description:
+        "Fetch all extracted questions from a specific past paper by its ID (get IDs from list_papers). Returns the full question text, label, and marks for each question.",
+      schema: z.object({
+        paperId: z.string().describe("Resource/paper ID from list_papers"),
+      }),
+    },
+  );
+
+  // ── answer_question ───────────────────────────────────────────────────────────
+  // Generates a model answer for a given question, grounded in RAG context from
+  // the subject's papers and syllabus. The marks guide the expected answer depth.
+  const answerQuestion = tool(
+    async ({ questionText, marks, subjectId, context: extraContext }) => {
+      try {
+        const questionSlice = questionText.slice(0, ANSWER_QUESTION_CHARS);
+
+        // Pull relevant content from the RAG store to ground the answer
+        let ragContext = "";
+        if (subjectId) {
+          const chunks = await retrieveChunks(questionSlice, {
+            type: "both",
+            subjectId,
+            topK: ANSWER_CONTEXT_CHUNKS,
+          });
+          if (chunks.length > 0) {
+            ragContext = `\n\nRelevant excerpts from past papers and syllabus (use these to ground your answer):\n\n${chunks.map((c) => c.text).join("\n\n")}\n`;
+          }
+        }
+
+        // Marks-aware depth hints so the answer length is exam-appropriate
+        const depthHint =
+          !marks || marks <= 2
+            ? "This is a short-answer question (1–2 marks). Give a concise, direct answer of 2–4 sentences."
+            : marks <= 5
+              ? "This is a medium question (3–5 marks). Give a structured answer with key points, definitions, and a brief example if relevant."
+              : "This is a long-answer question (6+ marks). Give a thorough answer with headings or numbered steps, definitions, derivations or examples as needed, and a brief conclusion.";
+
+        const extraHint = extraContext ? `\n\nAdditional context from the student: ${extraContext}` : "";
+
+        const prompt = `You are an expert university exam tutor. Write a model answer for the following exam question.
+
+Question: ${questionSlice}
+${marks ? `Marks: ${marks}` : ""}
+
+${depthHint}${extraHint}${ragContext}
+
+Format your answer clearly. Use bullet points or numbered steps where appropriate. Be precise and exam-ready. Do NOT copy-paste the excerpts verbatim — synthesise them into a clean answer.`;
+
+        const result = await chatComplete([{ role: "user", content: prompt }]);
+        if (!result) return "Failed to generate an answer — the AI service is unavailable.";
+
+        return JSON.stringify({
+          question: questionSlice,
+          marks: marks ?? null,
+          answer: result.content,
+        });
+      } catch (err) {
+        return `Failed to generate answer: ${errMsg(err)}`;
+      }
+    },
+    {
+      name: "answer_question",
+      description:
+        "Generate a model answer for a specific exam question. Grounded in real past-paper and syllabus content via RAG. Use this when the student asks to answer, solve, or explain a question. Pass the full question text and marks where known.",
+      schema: z.object({
+        questionText: z.string().describe("Full text of the exam question to answer"),
+        marks: z.number().optional().describe("Marks allocated to the question (guides answer depth)"),
+        subjectId: z.string().optional().describe("Subject ID to pull relevant RAG context"),
+        context: z.string().optional().describe("Any extra context from the student (e.g. topic focus, what they tried)"),
+      }),
+    },
+  );
+
   return [
     searchPapers,
     searchQuestions,
@@ -502,5 +667,8 @@ Return a JSON object: {"cards":[{"front":"","back":""}]}`;
     getMcqHistory,
     generateMcq,
     generateFlashcards,
+    listPapers,
+    getPaperQuestions,
+    answerQuestion,
   ];
 }

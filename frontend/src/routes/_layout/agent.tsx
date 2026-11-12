@@ -2,6 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import {
   Send,
   Loader2,
@@ -65,6 +68,9 @@ const TOOL_META: Record<string, { icon: typeof Search; label: string }> = {
   get_mcq_history: { icon: BarChart3, label: "Checking quiz history" },
   generate_mcq: { icon: PenLine, label: "Creating practice quiz" },
   generate_flashcards: { icon: Layers, label: "Creating flashcards" },
+  list_papers: { icon: FileText, label: "Listing available papers" },
+  get_paper_questions: { icon: HelpCircle, label: "Fetching paper questions" },
+  answer_question: { icon: Brain, label: "Writing model answer" },
 };
 
 const SUGGESTIONS = [
@@ -215,7 +221,11 @@ const mdComponents: Components = {
 
 function Markdown({ children }: { children: string }) {
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm, remarkMath]}
+      rehypePlugins={[rehypeKatex]}
+      components={mdComponents}
+    >
       {children}
     </ReactMarkdown>
   );
@@ -426,7 +436,7 @@ function AgentPage() {
       </div>
 
       {/* Messages */}
-      <div ref={messagesRef} className="flex-1 space-y-3 overflow-y-auto pb-4">
+      <div ref={messagesRef} className="chat-scroll flex-1 space-y-3 overflow-y-auto pb-4 pr-3">
         {chatItems.length === 0 && !loading && (
           <div className="flex h-full flex-col items-center justify-center text-center">
             <div className="flex size-12 items-center justify-center rounded-full bg-accent text-primary">
