@@ -1,3 +1,4 @@
+// frontend/src/routes/_layout/syllabus.tsx
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -840,6 +841,7 @@ function UnitRow({
                   <TopicPyqPanel
                     topic={activeTopic}
                     subjectId={subjectId ?? item.subjectId ?? undefined}
+                    context={item.subjectName ?? undefined}
                   />
                 ) : (
                   <p className="text-xs text-muted-foreground">

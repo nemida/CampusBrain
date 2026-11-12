@@ -1,3 +1,4 @@
+// frontend/src/components/campus/PyqResults.tsx
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -166,7 +167,15 @@ export function PyqTopicResults({
 
 // ── Inline panel for a single syllabus topic ─────────────────────────────────
 
-export function TopicPyqPanel({ topic, subjectId }: { topic: string; subjectId?: string | undefined }) {
+export function TopicPyqPanel({
+    topic,
+    subjectId,
+    context,
+}: {
+    topic: string;
+    subjectId?: string | undefined;
+    context?: string | undefined;
+}) {
     const [data, setData] = useState<ApiPyqSearchResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
 
@@ -174,13 +183,13 @@ export function TopicPyqPanel({ topic, subjectId }: { topic: string; subjectId?:
         let cancelled = false;
         setData(null);
         setError(null);
-        searchPyqQuestions({ topics: [cleanTopic(topic)], subjectId, perTopic: 5 })
+        searchPyqQuestions({ topics: [cleanTopic(topic)], subjectId, context, perTopic: 5 })
             .then((r) => !cancelled && setData(r))
             .catch((e) => !cancelled && setError(e instanceof ApiError ? e.message : "Couldn't load past questions."));
         return () => {
             cancelled = true;
         };
-    }, [topic, subjectId]);
+    }, [topic, subjectId, context]);   // context added
 
     if (error) return <p className="py-2 text-xs text-destructive">{error}</p>;
     if (!data) {

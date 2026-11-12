@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Loader2, BookOpen, GraduationCap, ShieldAlert, Layers } from "lucide-react";
+import { Plus, Trash2, Loader2, BookOpen, GraduationCap, ShieldAlert, Layers, Pencil, Check, X } from "lucide-react";
 
 import { LoginModal } from "@/components/campus/LoginModal";
 import { useAuthStore } from "@/lib/auth";
@@ -12,6 +12,7 @@ import {
   deleteBranch,
   fetchSubjects,
   createSubject,
+  updateSubject,
   deleteSubject,
   ApiBranch,
   ApiSubject,
@@ -221,23 +222,19 @@ function AdminPage() {
               </thead>
               <tbody className="divide-y divide-border">
                 {subjects.map((s) => (
-                  <tr key={s.id} style={toneStyle(s.id)} className="transition-colors hover:bg-muted/30">
-                    <td className="px-4 py-3"><span className="chip chip-tone font-mono">{s.code}</span></td>
-                    <td className="px-4 py-3 font-medium text-foreground">{s.name}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{s.branch}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{s.semester}</td>
-                    <td className="px-4 py-3 text-center"><span className="chip">{s.paperCount}</span></td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => void handleDeleteSubject(s, setSubjects)}
-                        aria-label={`Delete ${s.name}`}
-                        title={`Delete ${s.name}`}
-                        className="btn btn-danger btn-sm btn-icon"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </button>
-                    </td>
-                  </tr>
+                  <SubjectRow
+                    key={s.id}
+                    subject={s}
+                    branches={branches}
+                    onUpdated={(updated) =>
+                      setSubjects((prev) =>
+                        prev.map((x) => (x.id === updated.id ? updated : x)),
+                      )
+                    }
+                    onDeleted={() =>
+                      setSubjects((prev) => prev.filter((x) => x.id !== s.id))
+                    }
+                  />
                 ))}
               </tbody>
             </table>
@@ -539,27 +536,201 @@ function SubjectAddForm({
   );
 }
 
-/* ───────────────────────── delete handler ───────────────────────── */
+/* ───────────────────────── subject row (inline edit + delete) ───────────── */
 
-async function handleDeleteSubject(
-  subject: ApiSubject,
-  setSubjects: React.Dispatch<React.SetStateAction<ApiSubject[]>>,
-) {
-  if (
-    !window.confirm(
-      `Delete "${subject.name}" (${subject.code})?\n${
-        subject.paperCount > 0
-          ? `It has ${subject.paperCount} paper(s) attached — remove those first.`
-          : "This cannot be undone."
-      }`,
-    )
-  )
-    return;
-  try {
-    await deleteSubject(subject.id);
-    setSubjects((prev) => prev.filter((s) => s.id !== subject.id));
-    toast.success("Subject deleted");
-  } catch (e) {
-    toast.error(e instanceof ApiError ? e.message : "Delete failed.");
+function SubjectRow({
+  subject,
+  branches,
+  onUpdated,
+  onDeleted,
+}: {
+  subject: ApiSubject;
+  branches: ApiBranch[];
+  onUpdated: (s: ApiSubject) => void;
+  onDeleted: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    code: subject.code,
+    name: subject.name,
+    semester: String(subject.semester),
+    branchId: branches.find((b) => b.name === subject.branch)?.id ?? "",
+  });
+
+  // Keep branchId in sync when branches load after mount
+  useEffect(() => {
+    if (!form.branchId) {
+      const match = branches.find((b) => b.name === subject.branch);
+      if (match) setForm((f) => ({ ...f, branchId: match.id }));
+    }
+  }, [branches, subject.branch, form.branchId]);
+
+  function startEdit() {
+    setForm({
+      code: subject.code,
+      name: subject.name,
+      semester: String(subject.semester),
+      branchId: branches.find((b) => b.name === subject.branch)?.id ?? "",
+    });
+    setEditing(true);
   }
+
+  function cancelEdit() {
+    setEditing(false);
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const updated = await updateSubject(subject.id, {
+        code: form.code.trim(),
+        name: form.name.trim(),
+        semester: Number(form.semester),
+        branchId: form.branchId || undefined,
+      });
+      onUpdated(updated);
+      setEditing(false);
+      toast.success("Subject updated");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Update failed.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (
+      !window.confirm(
+        `Delete "${subject.name}" (${subject.code})?\n${
+          subject.paperCount > 0
+            ? `It has ${subject.paperCount} paper(s) attached — remove those first.`
+            : "This cannot be undone."
+        }`,
+      )
+    )
+      return;
+    try {
+      await deleteSubject(subject.id);
+      onDeleted();
+      toast.success("Subject deleted");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Delete failed.");
+    }
+  }
+
+  if (editing) {
+    return (
+      <tr style={toneStyle(subject.id)} className="bg-muted/20">
+        <td className="px-3 py-2">
+          <input
+            className="field field-sm font-mono"
+            value={form.code}
+            onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
+            placeholder="Code"
+            required
+            aria-label="Subject code"
+          />
+        </td>
+        <td className="px-3 py-2">
+          <input
+            className="field field-sm w-full"
+            value={form.name}
+            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            placeholder="Name"
+            required
+            aria-label="Subject name"
+          />
+        </td>
+        <td className="px-3 py-2">
+          <select
+            className="field field-sm"
+            value={form.branchId}
+            onChange={(e) => setForm((f) => ({ ...f, branchId: e.target.value }))}
+            aria-label="Branch"
+          >
+            {branches.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </td>
+        <td className="px-3 py-2">
+          <select
+            className="field field-sm !w-20"
+            value={form.semester}
+            onChange={(e) => setForm((f) => ({ ...f, semester: e.target.value }))}
+            aria-label="Semester"
+          >
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </td>
+        <td className="px-3 py-2 text-center">
+          <span className="chip">{subject.paperCount}</span>
+        </td>
+        <td className="px-3 py-2">
+          <form onSubmit={handleSave} className="flex items-center justify-end gap-1.5">
+            <button
+              type="submit"
+              disabled={saving}
+              aria-label="Save changes"
+              title="Save"
+              className="btn btn-primary btn-sm btn-icon"
+            >
+              {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+            </button>
+            <button
+              type="button"
+              onClick={cancelEdit}
+              aria-label="Cancel edit"
+              title="Cancel"
+              className="btn btn-ghost btn-sm btn-icon"
+            >
+              <X className="size-3.5" />
+            </button>
+          </form>
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <tr style={toneStyle(subject.id)} className="transition-colors hover:bg-muted/30">
+      <td className="px-4 py-3">
+        <span className="chip chip-tone font-mono">{subject.code}</span>
+      </td>
+      <td className="px-4 py-3 font-medium text-foreground">{subject.name}</td>
+      <td className="px-4 py-3 text-muted-foreground">{subject.branch}</td>
+      <td className="px-4 py-3 text-muted-foreground">{subject.semester}</td>
+      <td className="px-4 py-3 text-center">
+        <span className="chip">{subject.paperCount}</span>
+      </td>
+      <td className="px-4 py-3 text-right">
+        <div className="flex items-center justify-end gap-1.5">
+          <button
+            onClick={startEdit}
+            aria-label={`Edit ${subject.name}`}
+            title={`Edit ${subject.name}`}
+            className="btn btn-ghost btn-sm btn-icon"
+          >
+            <Pencil className="size-3.5" />
+          </button>
+          <button
+            onClick={() => void handleDelete()}
+            aria-label={`Delete ${subject.name}`}
+            title={`Delete ${subject.name}`}
+            className="btn btn-danger btn-sm btn-icon"
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
 }

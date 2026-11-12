@@ -1,10 +1,7 @@
 /**
- * POST /api/questions/search — find the exact past-paper questions about one or more syllabus topics,
- *                              and which papers they appear in. Requires login.
- *
- * Body: { topics: string[1..10], subjectId?: string, perTopic?: number (1..15, default 6) }
- *
- * Mount in src/index.ts:   app.use("/api/questions", questionsRouter);
+ * backend/src/routes/questions.ts
+ * POST /api/questions/search — find past-paper questions about one or more syllabus topics.
+ * Body: { topics: string[1..10], subjectId?: string, context?: string, perTopic?: number (1..15, default 6) }
  */
 import { Router, Request, Response, NextFunction } from "express";
 import { Prisma } from "@prisma/client";
@@ -12,9 +9,8 @@ import { z } from "zod";
 import rateLimit from "express-rate-limit";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/requireAuth.js";
-import { embedTexts, vectorToSql } from "../lib/embeddings.js";
 import { groupDuplicates, rankCandidates, summarizePapers, yearsOf } from "../lib/questionSearch.js";
-import { cleanTopic, findCandidates } from "../lib/pyqSearch.js";
+import { findCandidates, resolveTopics } from "../lib/pyqSearch.js";
 
 const router = Router();
 
@@ -30,6 +26,7 @@ const limiter = rateLimit({
 const searchSchema = z.object({
     topics: z.array(z.string().trim().min(1).max(200)).min(1).max(10),
     subjectId: z.string().min(1).optional(),
+    context: z.string().trim().max(200).optional(),
     perTopic: z.number().int().min(1).max(15).default(6),
 });
 
@@ -38,20 +35,18 @@ const CONCURRENCY = 5;
 router.post("/search", requireAuth(), limiter, async (req: Request, res: Response, next: NextFunction) => {
     try {
         const body = searchSchema.parse(req.body);
-        const topics = [...new Set(body.topics.map(cleanTopic).filter((t) => t.length >= 2))];
-        if (topics.length === 0) {
-            res.status(400).json({ error: "Enter at least one topic (2+ characters)." });
-            return;
+
+        // No context sent (e.g. the PYQ Finder) -> use the subject's name so cache keys match the syllabus page
+        let context = body.context;
+        if (!context && body.subjectId) {
+            const subj = await prisma.subject.findUnique({ where: { id: body.subjectId }, select: { name: true } });
+            context = subj?.name;
         }
 
-        // One batched embedding call for all topics. If it fails we still answer with keyword matches.
-        let vectors: number[][] | null = null;
-        let semanticUnavailable = false;
-        try {
-            vectors = await embedTexts(topics, "query");
-        } catch (err) {
-            semanticUnavailable = true;
-            console.error("[Questions] topic embedding failed:", err instanceof Error ? err.message : err);
+        const { resolved, semantic } = await resolveTopics(body.topics, context);
+        if (resolved.length === 0) {
+            res.status(400).json({ error: "Enter at least one topic (2+ characters)." });
+            return;
         }
 
         const subjectFilter = body.subjectId ? Prisma.sql`AND q."subjectId" = ${body.subjectId}` : Prisma.empty;
@@ -66,26 +61,28 @@ router.post("/search", requireAuth(), limiter, async (req: Request, res: Respons
         ]);
 
         const results = [];
-        for (let i = 0; i < topics.length; i += CONCURRENCY) {
-            const batch = topics.slice(i, i + CONCURRENCY);
+        for (let i = 0; i < resolved.length; i += CONCURRENCY) {
+            const batch = resolved.slice(i, i + CONCURRENCY);
             results.push(
                 ...(await Promise.all(
-                    batch.map(async (topic, j) => {
-                        const v = vectors?.[i + j];
-                        const candidates = await findCandidates(topic, v ? vectorToSql(v) : null, body.subjectId);
-                        // rank wide, merge repeats across years, then keep the best `perTopic`
-                        const ranked = rankCandidates(topic, candidates, { limit: body.perTopic * 3 });
+                    batch.map(async (r) => {
+                        const candidates = await findCandidates(r.topic, r.vec, body.subjectId, r.aliases);
+                        const ranked = rankCandidates(r.topic, candidates, {
+                            limit: body.perTopic * 3,
+                            aliases: r.aliases,
+                        });
                         const questions = groupDuplicates(ranked).slice(0, body.perTopic);
                         const papers = summarizePapers(questions);
-                        return { topic, questions, papers, years: yearsOf(papers) };
+                        console.log("[pyq]", r.topic, questions.map((q) => [q.text.slice(0, 50), q.score.toFixed(2), q.exactMatch, q.termMatch])); // temporary, remove after tuning
+                        return { topic: r.topic, questions, papers, years: yearsOf(papers) };
                     }),
                 )),
             );
         }
 
         res.json({
-            ragEnabled: vectors !== null,
-            semanticUnavailable,
+            ragEnabled: semantic,
+            semanticUnavailable: !semantic,
             coverage: {
                 questionsIndexed: coverageRows[0]?.questions ?? 0,
                 papersIndexed: coverageRows[0]?.papers ?? 0,

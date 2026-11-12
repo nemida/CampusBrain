@@ -1,12 +1,11 @@
 /**
+ * backend/src/lib/pyqSearch.ts
  * Past-paper question search shared by POST /api/questions/search and the AI coach.
- *
- * Candidates come from two angles (nearest by meaning, literal mentions of the topic), are ranked with a
- * blended semantic + lexical score, and repeats across years are merged into one entry listing every paper.
  */
 import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma.js";
 import { embedTexts, vectorToSql } from "./embeddings.js";
+import { buildProfiles, getCachedProfile, keyOf, type TopicProfile } from "./topicProfile.js";
 import { groupDuplicates, rankCandidates, type Candidate, type QuestionGroup } from "./questionSearch.js";
 
 const VECTOR_CANDIDATES = 40;
@@ -63,14 +62,70 @@ function toCandidate(r: Row): Candidate {
     };
 }
 
-/** Candidates from two angles: nearest by meaning, and literal mentions of the topic. */
+export interface ResolvedTopic {
+    topic: string;
+    vec: string | null;
+    aliases: string[];
+}
+
+/**
+ * Turns raw topics into searchable ones.
+ *  - Cached profiles: DB read only, 0 API calls.
+ *  - Uncached topics WITH a context (subject): built together in ONE LLM call + ONE embedding call.
+ *  - No context, or a failed build: falls back to embedding the bare topic (one batched call).
+ */
+export async function resolveTopics(
+    rawTopics: string[],
+    context?: string,
+): Promise<{ resolved: ResolvedTopic[]; semantic: boolean }> {
+    const topics = [...new Set(rawTopics.map(cleanTopic).filter((t) => t.length >= 2))];
+    if (topics.length === 0) return { resolved: [], semantic: false };
+
+    const profiles: (TopicProfile | null)[] = await Promise.all(
+        topics.map((t) => getCachedProfile(t, context)), // DB read only
+    );
+
+    if (context) {
+        const uncached = topics.map((_, i) => i).filter((i) => !profiles[i]);
+        if (uncached.length > 0) {
+            try {
+                const built = await buildProfiles(uncached.map((i) => topics[i]!), context);
+                for (const i of uncached) profiles[i] = built.get(keyOf(topics[i]!, context)) ?? null;
+            } catch (e) {
+                console.error("[pyqSearch] batch profile build failed:", e instanceof Error ? e.message : e);
+            }
+        }
+    }
+
+    const missing = topics.map((_, i) => i).filter((i) => !profiles[i]?.embedding);
+    let fallback: number[][] | null = null;
+    if (missing.length > 0) {
+        try {
+            fallback = await embedTexts(missing.map((i) => topics[i]!), "query");
+        } catch (e) {
+            console.error("[pyqSearch] embedding failed:", e instanceof Error ? e.message : e);
+        }
+    }
+
+    let semantic = false;
+    const resolved = topics.map((topic, i) => {
+        const p = profiles[i];
+        const v = p?.embedding ?? fallback?.[missing.indexOf(i)] ?? null;
+        if (v) semantic = true;
+        return { topic, vec: v ? vectorToSql(v) : null, aliases: p?.aliases ?? [] };
+    });
+    return { resolved, semantic };
+}
+
+/** Candidates from two angles: nearest by meaning, and literal mentions of the topic or its aliases. */
 export async function findCandidates(
     topic: string,
     vec: string | null,
     subjectId: string | undefined,
+    aliases: string[] = [],
 ): Promise<Candidate[]> {
     const subjectFilter = subjectId ? Prisma.sql`AND q."subjectId" = ${subjectId}` : Prisma.empty;
-    const pattern = `%${topic.replace(/[\\%_]/g, "\\$&")}%`;
+    const patterns = [topic, ...aliases].map((t) => `%${t.replace(/[\\%_]/g, "\\$&")}%`);
     const similarity = vec
         ? Prisma.sql`CASE WHEN q."embedding" IS NULL THEN NULL ELSE 1 - (q."embedding" <=> ${vec}::vector) END`
         : Prisma.sql`NULL::float8`;
@@ -83,7 +138,7 @@ export async function findCandidates(
           LIMIT ${Prisma.raw(String(VECTOR_CANDIDATES))}`)
             : Promise.resolve<Row[]>([]),
         prisma.$queryRaw<Row[]>(Prisma.sql`${SELECT}, ${similarity} AS "similarity" ${FROM}
-      WHERE q."text" ILIKE ${pattern} ${subjectFilter}
+      WHERE q."text" ILIKE ANY(${patterns}::text[]) ${subjectFilter}
       ORDER BY r."year" DESC
       LIMIT ${Prisma.raw(String(TEXT_CANDIDATES))}`),
     ]);
@@ -95,38 +150,28 @@ export interface TopicQuestions {
     groups: QuestionGroup[];
 }
 
-/**
- * Ranked, de-duplicated past questions for each topic. One batched embedding call; if embedding fails we still
- * answer from keyword matches. `semantic` tells callers which mode was used.
- */
+/** Ranked, de-duplicated past questions for each topic (used by the AI coach). */
 export async function searchTopicQuestions(
     rawTopics: string[],
     subjectId: string | undefined,
     perTopic: number,
+    context?: string,
 ): Promise<{ results: TopicQuestions[]; semantic: boolean }> {
-    const topics = [...new Set(rawTopics.map(cleanTopic).filter((t) => t.length >= 2))];
-    if (topics.length === 0) return { results: [], semantic: false };
-
-    let vectors: number[][] | null = null;
-    try {
-        vectors = await embedTexts(topics, "query");
-    } catch (err) {
-        console.error("[pyqSearch] topic embedding failed:", err instanceof Error ? err.message : err);
-    }
+    const { resolved, semantic } = await resolveTopics(rawTopics, context);
+    if (resolved.length === 0) return { results: [], semantic: false };
 
     const results: TopicQuestions[] = [];
-    for (let i = 0; i < topics.length; i += CONCURRENCY) {
-        const batch = topics.slice(i, i + CONCURRENCY);
+    for (let i = 0; i < resolved.length; i += CONCURRENCY) {
+        const batch = resolved.slice(i, i + CONCURRENCY);
         results.push(
             ...(await Promise.all(
-                batch.map(async (topic, j) => {
-                    const v = vectors?.[i + j];
-                    const candidates = await findCandidates(topic, v ? vectorToSql(v) : null, subjectId);
-                    const ranked = rankCandidates(topic, candidates, { limit: perTopic * 3 });
-                    return { topic, groups: groupDuplicates(ranked).slice(0, perTopic) };
+                batch.map(async (r) => {
+                    const candidates = await findCandidates(r.topic, r.vec, subjectId, r.aliases);
+                    const ranked = rankCandidates(r.topic, candidates, { limit: perTopic * 3, aliases: r.aliases });
+                    return { topic: r.topic, groups: groupDuplicates(ranked).slice(0, perTopic) };
                 }),
             )),
         );
     }
-    return { results, semantic: vectors !== null };
+    return { results, semantic };
 }

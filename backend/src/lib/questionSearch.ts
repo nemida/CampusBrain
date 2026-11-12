@@ -1,9 +1,10 @@
 /**
+ * backend/src/lib/questionSearch.ts
  * Ranking, de-duplication and summarising of PYQ question search results (pure functions).
  *
- * Vector similarity alone ranks loosely for short topics ("Binary Trees") against long questions, so it is
- * blended with a lexical signal: how many topic words appear in the question, and whether the whole phrase does.
- * Questions that repeat across years are merged into one entry listing every paper they appeared in.
+ * Two evidence tiers:
+ *  - lexical: the question contains the topic, some of its words, or one of its aliases -> trusted
+ *  - semantic-only: only embedding similarity connects it to the topic -> strictly limited
  */
 
 export interface PaperRef {
@@ -21,17 +22,18 @@ export interface Candidate {
     questionIndex: number;
     label: string | null;
     marks: number | null;
-    pageNumber: number | null; // known for scanned papers
-    source: "text" | "scan"; // "scan" = transcribed from a scanned page by a vision model
+    pageNumber: number | null;
+    source: "text" | "scan";
     text: string;
-    similarity: number | null; // cosine similarity, null if the question has no embedding
+    similarity: number | null;
     paper: PaperRef;
 }
 
 export interface Ranked extends Candidate {
     score: number;
-    exactMatch: boolean; // the topic phrase appears in the question
-    termMatch: number; // 0..1, share of topic words present
+    exactMatch: boolean;
+    termMatch: number; // 0..1
+    lexical: boolean; // topic words, phrase or alias found in the question
 }
 
 export interface Appearance {
@@ -47,12 +49,12 @@ export interface QuestionGroup {
     text: string;
     label: string | null;
     marks: number | null;
-    source: "text" | "scan"; // of the best-matching appearance
+    source: "text" | "scan";
     score: number;
     similarity: number | null;
     exactMatch: boolean;
     termMatch: number;
-    appearances: Appearance[]; // newest paper first; includes the primary one
+    appearances: Appearance[];
 }
 
 export interface PaperSummary {
@@ -72,7 +74,7 @@ function stem(w: string): string {
     return w;
 }
 
-/** Lowercased, de-pluralised words (keeps things like c++ / c#); drops stop-words and 1-2 letter words. */
+/** Lowercased, de-pluralised words (keeps c++ / c#); drops stop-words and 1-2 letter words. */
 export function tokens(s: string): string[] {
     const words = s.toLowerCase().match(/[a-z0-9+#]+/g) ?? [];
     return words.filter((w) => (w.length >= 3 || /[+#]/.test(w)) && !STOP.has(w)).map(stem);
@@ -96,9 +98,10 @@ function containsSequence(hay: string[], needle: string[]): boolean {
 export function rankCandidates(
     topic: string,
     candidates: Candidate[],
-    opts: { limit?: number; window?: number } = {},
+    opts: { limit?: number; aliases?: string[]; semanticMin?: number; maxSemanticOnly?: number } = {},
 ): Ranked[] {
-    const { limit = 12, window = 0.1 } = opts;
+    const { limit = 12, aliases = [], semanticMin = 0.5, maxSemanticOnly = 3 } = opts;
+
     const byId = new Map<string, Candidate>();
     for (const c of candidates) {
         const prev = byId.get(c.id);
@@ -107,9 +110,9 @@ export function rankCandidates(
 
     const tTokens = tokens(topic);
     const tUnique = [...new Set(tTokens)];
+    const aTokens = aliases.map(tokens).filter((a) => a.length > 0);
 
-    // Questions without an embedding get a neutral similarity (median of the rest), so a literal match for the topic
-    // can still compete with embedded questions instead of being scored as "0% similar".
+    // Questions without an embedding get a neutral similarity (median of the rest).
     const known = [...byId.values()].map((c) => c.similarity).filter((x): x is number => x !== null).sort((a, b) => a - b);
     const neutral = known.length > 0 ? known[Math.floor(known.length / 2)]! : 0.5;
 
@@ -117,27 +120,36 @@ export function rankCandidates(
     for (const c of byId.values()) {
         const qTokens = tokens(c.text);
         const qSet = new Set(qTokens);
-        const hit = tUnique.filter((t) => qSet.has(t)).length;
-        const termMatch = tUnique.length > 0 ? hit / tUnique.length : 0;
+        const termMatch = tUnique.length > 0 ? tUnique.filter((t) => qSet.has(t)).length / tUnique.length : 0;
         const exactMatch = containsSequence(qTokens, tTokens);
-        if (c.similarity === null && termMatch === 0) continue; // nothing connects this question to the topic
-        // Drop weak semantic-only matches (no lexical signal + low similarity).
-        // These are tangentially related questions the embedding model pulls in.
-        if (termMatch === 0 && !exactMatch && (c.similarity ?? 0) < 0.45) continue;
+        const aliasHit = aTokens.some((a) => containsSequence(qTokens, a));
+        const lexical = termMatch > 0 || exactMatch || aliasHit;
+
+        if (c.similarity === null && !lexical) continue;
+        if (!lexical && (c.similarity ?? 0) < semanticMin) continue;
+
         ranked.push({
             ...c,
-            // Stronger lexical weights ensure questions that literally mention the topic
-            // rank above purely semantic matches ("tree traversal" vs "binary trees").
-            score: (c.similarity ?? neutral) + 0.15 * termMatch + (exactMatch ? 0.12 : 0),
+            score: (c.similarity ?? neutral) + 0.15 * termMatch + (exactMatch ? 0.12 : 0) + (aliasHit ? 0.08 : 0),
             exactMatch,
             termMatch,
+            lexical,
         });
     }
 
-    ranked.sort((a, b) => b.score - a.score || b.paper.year - a.paper.year);
-    const best = ranked[0]?.score;
-    if (best === undefined) return [];
-    return ranked.filter((r) => r.score >= best - window).slice(0, limit);
+    const byScore = (a: Ranked, b: Ranked) => b.score - a.score || b.paper.year - a.paper.year;
+
+    // Tier 1: lexical/alias hits (trusted), loose window
+    const trusted = ranked.filter((r) => r.lexical).sort(byScore);
+    const tBest = trusted[0]?.score ?? 0;
+    const keptTrusted = trusted.filter((r) => r.score >= tBest - 0.15);
+
+    // Tier 2: semantic-only, few and only the best cluster among themselves
+    const sem = ranked.filter((r) => !r.lexical).sort(byScore);
+    const sBest = sem[0]?.score ?? 0;
+    const keptSem = sem.filter((r) => r.score >= sBest - 0.05).slice(0, maxSemanticOnly);
+
+    return [...keptTrusted, ...keptSem].slice(0, limit);
 }
 
 const wordSet = (s: string) => new Set(s.toLowerCase().match(/[a-z0-9]+/g) ?? []);

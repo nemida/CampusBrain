@@ -1,4 +1,5 @@
 /**
+ * frontend/src/lib/api.ts
  * Typed API client for the CampusBrain backend.
  *
  * All requests go through `apiFetch`, which:
@@ -1144,6 +1145,7 @@ export interface ApiPyqSearchResponse {
 export async function searchPyqQuestions(body: {
   topics: string[];
   subjectId?: string | undefined;
+  context?: string | undefined; 
   perTopic?: number | undefined;
 }): Promise<ApiPyqSearchResponse> {
   return apiFetch<ApiPyqSearchResponse>("/api/questions/search", {

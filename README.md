@@ -32,12 +32,13 @@ Teachers and admins also need a simple way to upload papers and maintain the syl
 - Provide a **central repository** of PYQ papers organised as Branch → Semester → Subject → Resource.
 - **Digitise and index** uploaded PDFs, including scanned ones via vision extraction. Papers are split into chunks and individual questions, then embedded for semantic search.
 - Enable **topic-wise PYQ search** that returns de-duplicated real questions along with the papers and years they appeared in.
+- Improve **topic search accuracy** by expanding each syllabus topic into a description and a list of aliases, caching that profile, and ranking keyword and alias matches above purely semantic matches.
 - Provide an **AI study coach** (a tool-using agent) that can search papers, rank commonly asked topics, read the syllabus, review quiz history, and generate quizzes, flashcards and mock papers.
 - Support **active learning** through MCQ practice sessions with scoring and history, and flashcards scheduled with the SM-2 spaced-repetition algorithm.
 - Offer **study plans** and **study groups** (invite-code based) for planning and collaboration.
 - Show a **personalised dashboard** based on the student's profile and activity.
 - Provide **role-based access** (Student, Teacher, Admin) with secure authentication.
-- Stay usable on **free-tier AI quotas** by chaining several models and falling back automatically.
+- Stay usable on **free-tier AI quotas** by chaining several models, falling back automatically, and caching anything that would otherwise cost an API call on every click.
 
 ---
 
@@ -55,6 +56,7 @@ Teachers and admins also need a simple way to upload papers and maintain the syl
 | FR-4  | Resources (PYQs)     | Teachers or admins upload a PDF with subject, year and exam type (Mid-Sem or End-Sem). Users can list, filter and view papers.   |
 | FR-5  | Ingestion pipeline   | After upload the system extracts text (or uses vision for scans), chunks it, segments individual questions and stores embeddings. |
 | FR-6  | PYQ question search  | Students search past questions by topic, using semantic and keyword matching, with de-duplication and the years each appeared.   |
+| FR-6a | Topic profiles       | Each topic is expanded once into a description and aliases (optionally scoped by subject name), stored in the database and reused for embedding, keyword matching and ranking. |
 | FR-7  | Syllabus             | Syllabus is stored per branch, semester and scheme as units, topics and hours. Its text is embedded for retrieval.               |
 | FR-8  | MCQ practice         | Generate an MCQ quiz on a topic, answer questions, get a score, and view or delete past sessions.                                |
 | FR-9  | Flashcards           | Create or AI-generate flashcard sets, add cards, and review cards with SM-2 scheduling (ease factor, interval, next review).     |
@@ -73,21 +75,21 @@ Teachers and admins also need a simple way to upload papers and maintain the syl
 | Security            | Passwords hashed with bcrypt. Short-lived JWT access tokens (default 15 min) and refresh tokens (default 7 days) stored in the database. `helmet` headers. Strict CORS allow-list. |
 | Input validation    | Environment variables are validated at startup with Zod, and the process exits if they are invalid. Request payloads are validated with Zod and `express-validator`. |
 | Rate limiting       | 200 requests per minute globally. 20 requests per 15 minutes on auth endpoints. Extra limiters on question search and group joining.             |
-| Reliability         | Embeddings are computed before old data is deleted, and delete plus insert run in one transaction. The AI layer falls through a chain of models on rate limits. |
-| Performance         | Vector search uses pgvector. Subject IDs are denormalised onto chunk tables, and DB indexes cover common filters. Agent tool outputs are kept small to save tokens. |
+| Reliability         | Embeddings are computed before old data is deleted, and delete plus insert run in one transaction. The AI layer falls through a chain of models on rate limits. If a topic profile cannot be built, search falls back to the bare topic instead of failing. |
+| Performance         | Vector search uses pgvector. Subject IDs are denormalised onto chunk tables, and DB indexes cover common filters. Agent tool outputs are kept small to save tokens. Cached topic profiles make repeat searches database-only. |
 | Scalability         | Stateless API behind a reverse proxy (`trust proxy` enabled in production). Dockerised backend with a healthcheck. External hosted Postgres and Cloudinary. |
 | Usability           | Responsive React UI with a component library, toast feedback, and deep links (e.g. `/pyq?subjectId=…&topics=…`, `/groups?join=CODE`).            |
-| Maintainability     | TypeScript on both frontend and backend. Prisma migrations. ESLint and Prettier. Modular route and lib structure.                                |
-| Cost                | Designed to run on free tiers (Groq, Gemini or Hugging Face embeddings, Cloudinary free plan, hosted Postgres free plan).                        |
-| Portability         | One embedding provider per deployment (768-dim vectors) to avoid mixing incompatible vector spaces.                                              |
+| Maintainability     | TypeScript on both frontend and backend. Prisma migrations. ESLint and Prettier. Modular route and lib structure. Topic aliases are plain data and can be edited without a deploy. |
+| Cost                | Designed to run on free tiers (Groq, Gemini or Hugging Face embeddings, Cloudinary free plan, hosted Postgres free plan). A topic costs at most one LLM call and one embedding call, once; all uncached topics in a search are built together in a single pair of calls, and cached topics cost no API calls. |
+| Portability         | One embedding provider per deployment (768-dim vectors) to avoid mixing incompatible vector spaces. Topic profiles record the embedding model and are rebuilt automatically if it changes. |
 
 ### 3.2 Feasibility Study of the Project
 
-**Technical feasibility.** The project uses mature, well-documented technologies: React and TanStack Start for the UI, Express and Prisma for the API, PostgreSQL with pgvector for relational and vector data, and LangChain/LangGraph for the agent. Hosted services handle file storage (Cloudinary), embeddings (Gemini or Hugging Face) and LLM inference (Groq). The team needs no specialised hardware.
+**Technical feasibility.** The project uses mature, well-documented technologies: React and TanStack Start for the UI, Express and Prisma for the API, PostgreSQL with pgvector for relational and vector data, and LangChain/LangGraph for the agent. Hosted services handle file storage (Cloudinary), embeddings (Gemini or Hugging Face) and LLM inference (Groq, Gemini). The team needs no specialised hardware.
 
-**Economic feasibility.** Every external service used has a free tier that covers a campus-scale prototype. Free-tier LLM limits are the main constraint. The design addresses them with a model fallback chain, short prompts and clamped tool outputs. Costs would grow only with usage, and paid keys such as OpenAI can be added as a fallback.
+**Economic feasibility.** Every external service used has a free tier that covers a campus-scale prototype. Free-tier LLM limits are the main constraint. The design addresses them with a model fallback chain, short prompts, clamped tool outputs, and a persistent cache of topic profiles so that repeat searches make no API calls. Costs would grow only with usage, and paid keys such as OpenAI can be added as a fallback.
 
-**Operational feasibility.** The workflow matches how students and teachers already work: upload a PDF, find a paper, practise. Teachers only upload papers and syllabus. Ingestion runs automatically and backfill scripts are provided for existing data. The backend runs in Docker with a health endpoint.
+**Operational feasibility.** The workflow matches how students and teachers already work: upload a PDF, find a paper, practise. Teachers only upload papers and syllabus. Ingestion runs automatically and backfill scripts are provided for existing data. An optional script precomputes topic profiles for the whole syllabus. The backend runs in Docker with a health endpoint.
 
 **Schedule feasibility.** The system splits into independent modules (auth, catalogue, ingestion, study tools, agent) that can be built and tested separately.
 
@@ -101,6 +103,9 @@ Teachers and admins also need a simple way to upload papers and maintain the syl
 | Scanned PDFs with no text layer         | Vision-based extraction through `pdfVision` and `visionExtract`             |
 | Mixed embedding models corrupt search   | Single provider per deployment, with a documented re-embed requirement      |
 | Inaccurate AI output                    | Quiz and flashcard generation is grounded in retrieved paper and syllabus content |
+| Irrelevant questions from loose semantic matches | Two-tier ranking: keyword or alias hits are trusted; semantic-only hits need similarity of at least 0.5 and are capped at 3 per topic |
+| Bad aliases for a topic                 | Aliases are stored in the `TopicProfile` table and can be edited or deleted (the row rebuilds on next use) |
+| Free-tier quota exhausted by topic expansion | Profiles are cached permanently; uncached topics are built in one batched call; searches without a subject skip expansion |
 
 ### 3.3 Tools / Technologies / Platform used
 
@@ -115,7 +120,7 @@ Teachers and admins also need a simple way to upload papers and maintain the syl
 | Security       | `helmet`, `cors`, `express-rate-limit`, `express-validator`, Zod                                |
 | File storage   | Cloudinary (PDF hosting), `multer` for uploads                                                  |
 | PDF processing | `pdf-parse`, `@napi-rs/canvas` (render pages for vision OCR)                                    |
-| AI / LLM       | LangChain, LangGraph (ReAct agent), Groq (`@langchain/groq`, `groq-sdk`), Google Gemini, optional OpenAI |
+| AI / LLM       | LangChain, LangGraph (ReAct agent), Groq (`@langchain/groq`, `groq-sdk`), Google Gemini (also used, in JSON mode, to build topic profiles), optional OpenAI |
 | Embeddings     | Gemini `gemini-embedding-001` (768 dims) or Hugging Face `BAAI/bge-base-en-v1.5`                |
 | DevOps         | Docker and Docker Compose, Nitro server build                                                   |
 | Code quality   | ESLint, Prettier, TypeScript                                                                    |
@@ -189,6 +194,7 @@ flowchart TB
     D2[("Catalogue: branches, subjects, resources")]
     D3[("Vector store: chunks and questions")]
     D4[("Study data: sessions, cards, plans, activity")]
+    D5[("Topic profiles: description, aliases, embedding")]
 
     U --> P1 <--> D1
     U -- "PDF + metadata" --> P2 --> D2
@@ -196,6 +202,7 @@ flowchart TB
     U -- "topic query" --> P3
     P3 <--> D3
     P3 <--> D2
+    P3 <--> D5
     U --> P4 <--> D4
     U -- "chat message" --> P5
     P5 -- "tool calls" --> P3
@@ -226,9 +233,9 @@ flowchart TB
 
     BE --> BE1["routes: 14 routers"]
     BE --> BE2["middleware: requireAuth, errorHandler"]
-    BE --> BE3["lib: AI, RAG, agent, ingestion"]
+    BE --> BE3["lib: AI, RAG, agent, ingestion, topic profiles"]
     BE --> BE4["prisma: schema, migrations, seed"]
-    BE --> BE5["scripts: backfill, bulkUpload"]
+    BE --> BE5["scripts: backfill, bulkUpload, buildTopicProfiles"]
 
     EXT --> E1["Cloudinary"]
     EXT --> E2["Groq / Gemini / OpenAI"]
@@ -258,6 +265,7 @@ flowchart LR
     C --> C2["PDF text and vision extraction"]
     C --> C3["Chunking, question segmentation"]
     C --> C4["Embeddings and vector search"]
+    C --> C5["Topic profiles and two-tier ranking"]
     D --> D1["MCQ"]
     D --> D2["Flashcards with SM-2"]
     D --> D3["Study plans and groups"]
@@ -284,7 +292,8 @@ flowchart LR
 | Resources     | `routes/resources.ts`, `lib/cloudinary.ts`  | Upload, list, filter (including by topic) and delete PYQ papers. Teacher or Admin only for writes.                  |
 | Ingestion     | `lib/ingestion.ts`, `pdfText.ts`, `pdfVision.ts`, `visionExtract.ts`, `questionSegmenter.ts`, `questionIngestion.ts` | Turns a PDF into text chunks and individual questions, embeds them, and stores them transactionally. |
 | Embeddings    | `lib/embeddings.ts`                         | Gemini or Hugging Face 768-dimension embeddings with retries.                                                       |
-| Retrieval     | `lib/retriever.ts`, `pyqSearch.ts`, `questionSearch.ts`, `topics.ts`, `routes/questions.ts` | Semantic and keyword search over chunks and questions. De-duplication.                |
+| Topic profiles | `lib/topicProfile.ts`                      | Builds a description and aliases for topics with one batched Gemini JSON call plus one batched embedding call, stores them in `TopicProfile`, and reads them back from the database without any API call. Profiles are keyed by `subject name\|topic` and invalidated if the embedding model changes. |
+| Retrieval     | `lib/retriever.ts`, `pyqSearch.ts`, `questionSearch.ts`, `topics.ts`, `routes/questions.ts` | Semantic and keyword search over chunks and questions. `pyqSearch.ts` resolves topics to profiles and runs the two SQL queries (pgvector nearest neighbours plus `ILIKE` on the topic and its aliases). `questionSearch.ts` ranks, tiers and de-duplicates. |
 | Syllabus      | `routes/syllabus.ts`                        | Units, topics and hours per branch, semester and scheme. Items are embedded as `SyllabusChunk`.                     |
 | MCQ           | `routes/mcq.ts`                             | Generates quizzes, records answers, scores sessions and returns history.                                            |
 | Flashcards    | `routes/flashcards.ts`                      | Sets and cards, AI generation, and SM-2 review scheduling.                                                          |
@@ -298,7 +307,17 @@ flowchart LR
 
 **Agent tools:** `search_papers`, `search_questions`, `get_common_topics`, `build_mock_paper`, `get_syllabus`, `get_mcq_history`, `generate_mcq`, `generate_flashcards`.
 
-**Operational scripts (`backend/scripts`):** `backfill.ts` (re-ingest resources), `backfillQuestions.ts` (re-extract questions), `bulkUpload.ts` (batch upload papers).
+**Operational scripts (`backend/scripts`):** `backfill.ts` (re-ingest resources), `backfillQuestions.ts` (re-extract questions), `bulkUpload.ts` (batch upload papers), `buildTopicProfiles.ts` (optional: precompute topic profiles for every syllabus topic; safe to re-run, skips topics already cached).
+
+#### PYQ topic search: how it works
+
+1. **Resolve topics.** The topic string has any `[Unit title]` prefix removed. If the request has a subject, its name is used as context (the syllabus page sends the subject name; the PYQ Finder sends a subject id and the server looks the name up), so both pages share the same cached profile.
+2. **Load or build the profile.** Cached profiles are read from `TopicProfile` with no API call. All uncached topics for the request are built together: one Gemini call returns a description and up to 6 aliases per topic, and one embedding call embeds `"topic: description"`. Results are stored. Searches with no subject skip expansion and embed the bare topic.
+3. **Find candidates.** The 40 nearest questions by cosine distance, plus up to 30 questions whose text matches the topic or any alias (`ILIKE ANY`).
+4. **Rank in two tiers.**
+   - *Trusted*: questions containing the topic, some of its words, or an alias. Scored as `similarity + 0.15 × termMatch + 0.12 (exact phrase) + 0.08 (alias)`.
+   - *Semantic-only*: questions connected only by embedding similarity. They must reach similarity 0.5, only the best cluster within 0.05 of the top semantic score is kept, and at most 3 are returned.
+5. **De-duplicate and summarise.** Near-identical questions across years are merged into one entry listing every paper they appeared in.
 
 #### Frontend (`frontend/src`)
 
@@ -309,7 +328,7 @@ flowchart LR
 | Student pages      | `routes/_layout/student.tsx`, `study.tsx`, `mcq.tsx`, `flashcards.tsx`, `groups.tsx`, `pyq.tsx`, `syllabus.tsx`, `profile.tsx`, `agent.tsx` | Personal dashboard and study tools. |
 | Admin              | `routes/_layout/admin.tsx`                 | Upload and content management.                                                |
 | Account            | `routes/_layout/register.tsx`, `components/campus/LoginModal.tsx` | Sign-up and sign-in.                                    |
-| Campus components  | `components/campus/*`                      | Header, upload card, PYQ results.                                             |
+| Campus components  | `components/campus/*`                      | Header, upload card, PYQ results. `TopicPyqPanel` takes an optional `context` (the subject name) and passes it to the search API. |
 | UI kit             | `components/ui/*`                          | Reusable Radix and Tailwind primitives.                                       |
 | Client services    | `lib/api.ts`, `lib/auth.ts`                | Typed API client with Bearer token handling, plus auth state.                 |
 
@@ -322,7 +341,7 @@ All routes are served under `/api`.
 | `/auth`               | `register-student`, `register`, `login`, `refresh`, `logout` |
 | `/branches`, `/subjects` | Catalogue                                         |
 | `/resources`          | Papers: list, `by-topic`, upload, delete             |
-| `/questions`          | `POST /search` for PYQ question search               |
+| `/questions`          | `POST /search` for PYQ question search. Body: `{ topics: string[1..10], subjectId?, context?, perTopic? (1..15, default 6) }` |
 | `/syllabus`           | Syllabus                                             |
 | `/mcq`                | `generate`, `sessions`, `sessions/:id/answer`        |
 | `/flashcards`         | Sets, cards, `generate`, `cards/:cardId/review`      |
@@ -350,6 +369,10 @@ flowchart LR
     R --> ING["Ingestion + retrieval"]
     AG --> LLM["Groq / Gemini"]
     ING --> EMB["Embedding API"]
+    ING --> TP["Topic profiles"]
+    TP --> LLM
+    TP --> EMB
+    TP --> DB
     ING --> DB
     AG --> ING
 ```
@@ -394,6 +417,31 @@ flowchart TD
     L -- "No" --> M["Keep existing data and report error"]
     L -- "Yes" --> N["Transaction: delete old, insert new chunks and questions"]
     N --> O(["Searchable"])
+```
+
+#### PYQ topic search
+
+```mermaid
+flowchart TD
+    A(["User clicks a topic or searches topics"]) --> B["POST /api/questions/search"]
+    B --> C["Clean topics, derive subject context"]
+    C --> D["Read cached TopicProfile rows (no API call)"]
+    D --> E{"Uncached topics and subject known?"}
+    E -- "Yes" --> F["ONE Gemini call: descriptions + aliases"]
+    F --> G["ONE embedding call, save profiles"]
+    E -- "No" --> H["Embed bare topic if no profile"]
+    G --> I["Fetch candidates: nearest by vector + ILIKE on topic and aliases"]
+    H --> I
+    D --> I
+    I --> J["Score each question: similarity + keyword, phrase and alias bonuses"]
+    J --> K{"Keyword or alias hit?"}
+    K -- "Yes" --> L["Trusted tier"]
+    K -- "No" --> M{"Similarity at least 0.5?"}
+    M -- "No" --> N["Dropped"]
+    M -- "Yes" --> O["Semantic tier, best cluster, max 3"]
+    L --> P["Merge repeats across years"]
+    O --> P
+    P --> Q(["Return questions, papers and years"])
 ```
 
 #### AI agent request
@@ -441,7 +489,7 @@ flowchart TD
 
 #### ER Diagram
 
-Derived from `backend/prisma/schema.prisma`.
+Derived from `backend/prisma/schema.prisma`. `TopicProfile` is a standalone cache table with no foreign keys (it is keyed by the text `subject name|topic`).
 
 ```mermaid
 erDiagram
@@ -563,6 +611,16 @@ erDiagram
         string text
         vector embedding
     }
+    TopicProfile {
+        string id PK
+        string key UK
+        string topic
+        string description
+        string[] aliases
+        json embedding
+        string model
+        datetime createdAt
+    }
     StudyPlan {
         string id PK
         string userId FK
@@ -665,8 +723,23 @@ classDiagram
     class Retriever {
         +retrieveChunks()
     }
+    class QuestionsRoute {
+        +POST /search
+    }
     class PyqSearch {
+        +resolveTopics(topics, context)
+        +findCandidates(topic, vec, subjectId, aliases)
         +searchTopicQuestions()
+    }
+    class QuestionSearch {
+        +rankCandidates(topic, candidates, aliases)
+        +groupDuplicates()
+        +summarizePapers()
+    }
+    class TopicProfileLib {
+        +getCachedProfile(topic, context)
+        +buildProfiles(topics, context)
+        +keyOf(topic, context)
     }
     class Embeddings {
         +embedTexts()
@@ -696,8 +769,14 @@ classDiagram
     AgentTools --> MockPaper
     AgentTools --> AI
     AgentTools --> Prisma
-    Retriever --> Embeddings
+    QuestionsRoute --> PyqSearch
+    QuestionsRoute --> QuestionSearch
+    PyqSearch --> TopicProfileLib
+    PyqSearch --> QuestionSearch
     PyqSearch --> Embeddings
+    TopicProfileLib --> Embeddings
+    TopicProfileLib --> Prisma
+    Retriever --> Embeddings
     Ingestion --> Embeddings
     Ingestion --> PdfText
     Ingestion --> QuestionIngestion
@@ -718,7 +797,7 @@ campusbrain/
 ├── backend/             Express + Prisma API (its own package.json)
 │   ├── src/             routes, lib, middleware
 │   ├── prisma/          schema, migrations, seed
-│   ├── scripts/         backfill and bulk upload
+│   ├── scripts/         backfill, bulk upload, topic profiles
 │   └── Dockerfile
 └── docker-compose.yml   runs the backend container
 ```
@@ -733,6 +812,7 @@ The two apps are independent. Run `npm install` separately in each folder.
 - A PostgreSQL database with the `vector` extension (Neon, Supabase and similar hosts support it)
 - A Cloudinary account
 - At least one LLM key (Groq recommended) and one embedding key (Gemini or Hugging Face)
+- A `GEMINI_API_KEY` is needed for topic profiles (aliases). Without it, topic search still works but falls back to the bare topic with no alias expansion.
 
 ### Backend
 
@@ -753,7 +833,7 @@ CLOUDINARY_API_KEY=...
 CLOUDINARY_API_SECRET=...
 BOT_BASE_URL=https://your-bot.example.com
 GROQ_API_KEY=...
-GEMINI_API_KEY=...           # or HUGGINGFACE_API_KEY
+GEMINI_API_KEY=...           # or HUGGINGFACE_API_KEY (Gemini also required for topic aliases)
 # OPENAI_API_KEY=...         # optional
 FRONTEND_URL=http://localhost:3000
 PORT=4000
@@ -762,10 +842,22 @@ PORT=4000
 Then run:
 
 ```bash
-npm run db:migrate    # apply migrations
+npm run db:migrate    # apply migrations (includes the TopicProfile table)
 npm run db:seed       # optional seed data
 npm run dev           # http://localhost:4000
 ```
+
+If `prisma migrate dev` asks to reset the database because of drift on the vector index, do not accept. Apply pending migrations with `npx prisma migrate deploy` instead, then run `npx prisma generate` (stop the dev server first on Windows).
+
+#### Optional: precompute topic profiles
+
+Topic profiles are built automatically the first time a topic is searched with a subject selected. To build them for the whole syllabus up front (so the first click on every topic is instant and costs nothing):
+
+```bash
+npx tsx scripts/buildTopicProfiles.ts
+```
+
+The script batches 20 topics per call, pauses between calls, and skips topics that are already cached, so it is safe to re-run after a rate limit. Aliases can be inspected and corrected in `npx prisma studio` (table `TopicProfile`); delete a row to have it rebuilt on next use.
 
 ### Frontend
 
@@ -786,12 +878,13 @@ This uses `backend/.env` and exposes port 4000 with a health check at `/api/heal
 
 ### Useful scripts
 
-| Command                         | Where     | Purpose                         |
-| ------------------------------- | --------- | ------------------------------- |
-| `npm run dev`                   | `frontend` | Start the frontend dev server  |
-| `npm run build`                 | `frontend` | Production build               |
-| `npm run lint` / `format`       | `frontend` | ESLint / Prettier              |
-| `npm run dev`                   | `backend` | Start the API with hot reload   |
-| `npm run build` / `start`       | `backend` | Compile and run                 |
-| `npm run db:studio`             | `backend` | Open Prisma Studio              |
-| `npx tsx scripts/backfill.ts`   | `backend` | Re-ingest existing resources    |
+| Command                                   | Where     | Purpose                                   |
+| ----------------------------------------- | --------- | ----------------------------------------- |
+| `npm run dev`                             | `frontend` | Start the frontend dev server            |
+| `npm run build`                           | `frontend` | Production build                         |
+| `npm run lint` / `format`                 | `frontend` | ESLint / Prettier                        |
+| `npm run dev`                             | `backend` | Start the API with hot reload             |
+| `npm run build` / `start`                 | `backend` | Compile and run                           |
+| `npm run db:studio`                       | `backend` | Open Prisma Studio                        |
+| `npx tsx scripts/backfill.ts`             | `backend` | Re-ingest existing resources              |
+| `npx tsx scripts/buildTopicProfiles.ts`   | `backend` | Precompute topic profiles (optional)      |
