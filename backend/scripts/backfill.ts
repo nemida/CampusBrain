@@ -4,10 +4,12 @@
  * Run from the backend/ folder:
  *   npx tsx scripts/backfill.ts --dry-run               # list targets, embed nothing (no API key needed)
  *   npx tsx scripts/backfill.ts --subject <subjectId>   # ONE subject's papers only
+ *   npx tsx scripts/backfill.ts --branch <code-or-name> # all subjects/syllabi in one branch
  *   npx tsx scripts/backfill.ts --syllabus <syllabusId> # ONE syllabus's units only
  *   npx tsx scripts/backfill.ts --resources-only
  *   npx tsx scripts/backfill.ts --syllabus-only
  *   npx tsx scripts/backfill.ts --missing-only          # skip items that already have chunks (retry after a partial run)
+ *   npx tsx scripts/backfill.ts --delay-ms 1000          # wait between embedding operations (default: 1000)
  *   npx tsx scripts/backfill.ts --limit 5               # cap subjects / syllabi processed
  *
  * IMPORTANT: after switching embedding models (e.g. text-embedding-004 -> gemini-embedding-001)
@@ -30,11 +32,13 @@ import { embeddingModelName, embeddingsConfigured } from "../src/lib/embeddings.
 
 interface Args {
   subjectId: string | null;
+  branch: string | null;
   syllabusId: string | null;
   resourcesOnly: boolean;
   syllabusOnly: boolean;
   missingOnly: boolean;
   dryRun: boolean;
+  delayMs: number;
   limit: number | null;
 }
 
@@ -45,13 +49,20 @@ function parseArgs(): Args {
     return i >= 0 && i + 1 < argv.length ? argv[i + 1]! : null;
   };
   const limitRaw = get("--limit");
+  const delayRaw = get("--delay-ms");
+  const delayMs = delayRaw === null ? 1000 : Number(delayRaw);
+  if (!Number.isFinite(delayMs) || delayMs < 0) {
+    throw new Error("--delay-ms must be a non-negative number");
+  }
   return {
     subjectId: get("--subject"),
+    branch: get("--branch"),
     syllabusId: get("--syllabus"),
     resourcesOnly: argv.includes("--resources-only"),
     syllabusOnly: argv.includes("--syllabus-only"),
     missingOnly: argv.includes("--missing-only"),
     dryRun: argv.includes("--dry-run"),
+    delayMs,
     limit: limitRaw ? Number(limitRaw) || null : null,
   };
 }
@@ -70,9 +81,16 @@ function merge(into: BackfillSummary, from: BackfillSummary): void {
 
 async function backfillResources(args: Args): Promise<BackfillSummary> {
   const resourceWhere: Prisma.ResourceWhereInput = args.missingOnly ? { chunks: { none: {} } } : {};
+  const branchWhere: Prisma.BranchWhereInput | undefined = args.branch
+    ? { OR: [{ code: args.branch }, { name: args.branch }] }
+    : undefined;
 
   let subjects = await prisma.subject.findMany({
-    where: { ...(args.subjectId ? { id: args.subjectId } : {}), resources: { some: resourceWhere } },
+    where: {
+      ...(args.subjectId ? { id: args.subjectId } : {}),
+      ...(branchWhere ? { branch: branchWhere } : {}),
+      resources: { some: resourceWhere },
+    },
     select: {
       id: true,
       code: true,
@@ -95,7 +113,13 @@ async function backfillResources(args: Args): Promise<BackfillSummary> {
   for (const s of subjects) {
     console.log(`\n── ${s.code} — ${s.name} (${s._count.resources}) ──`);
     try {
-      merge(summary, await backfillSubjectResources(s.id, { onlyMissing: args.missingOnly }));
+      merge(
+        summary,
+        await backfillSubjectResources(s.id, {
+          onlyMissing: args.missingOnly,
+          delayMs: args.delayMs,
+        }),
+      );
     } catch (e) {
       summary.failed.push({ id: `subject:${s.code}`, error: e instanceof Error ? e.message : String(e) });
     }
@@ -109,9 +133,16 @@ async function backfillResources(args: Args): Promise<BackfillSummary> {
 
 async function backfillSyllabi(args: Args): Promise<BackfillSummary> {
   const itemWhere: Prisma.SyllabusItemWhereInput = args.missingOnly ? { chunks: { none: {} } } : {};
+  const branchWhere: Prisma.BranchWhereInput | undefined = args.branch
+    ? { OR: [{ code: args.branch }, { name: args.branch }] }
+    : undefined;
 
   let syllabi = await prisma.syllabus.findMany({
-    where: { ...(args.syllabusId ? { id: args.syllabusId } : {}), items: { some: itemWhere } },
+    where: {
+      ...(args.syllabusId ? { id: args.syllabusId } : {}),
+      ...(branchWhere ? { branch: branchWhere } : {}),
+      items: { some: itemWhere },
+    },
     select: {
       id: true,
       semester: true,
@@ -137,7 +168,13 @@ async function backfillSyllabi(args: Args): Promise<BackfillSummary> {
   for (const s of syllabi) {
     console.log(`\n── ${s.branch.name} · Semester ${s.semester} (${s._count.items} units) ──`);
     try {
-      merge(summary, await backfillSyllabus(s.id, { onlyMissing: args.missingOnly }));
+      merge(
+        summary,
+        await backfillSyllabus(s.id, {
+          onlyMissing: args.missingOnly,
+          delayMs: args.delayMs,
+        }),
+      );
     } catch (e) {
       summary.failed.push({ id: `syllabus:${s.id}`, error: e instanceof Error ? e.message : String(e) });
     }
@@ -155,6 +192,8 @@ async function main() {
   console.log("🚀  CampusBrain RAG backfill");
   console.log(`     dry-run: ${args.dryRun ? "yes (nothing is embedded)" : "no"}`);
   console.log(`     mode:    ${args.missingOnly ? "missing-only" : "re-embed everything"}`);
+  console.log(`     delay:   ${args.delayMs} ms`);
+  if (args.branch) console.log(`     branch:  ${args.branch}`);
 
   // A dry run never calls the embedding API, so it must not require a key.
   if (!args.dryRun) {

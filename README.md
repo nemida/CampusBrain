@@ -887,4 +887,5 @@ This uses `backend/.env` and exposes port 4000 with a health check at `/api/heal
 | `npm run build` / `start`                 | `backend` | Compile and run                           |
 | `npm run db:studio`                       | `backend` | Open Prisma Studio                        |
 | `npx tsx scripts/backfill.ts`             | `backend` | Re-ingest existing resources              |
+| `npx tsx scripts/backfill.ts --branch CSE --missing-only --delay-ms 1000` | `backend` | Backfill one branch with a delay between embeddings |
 | `npx tsx scripts/buildTopicProfiles.ts`   | `backend` | Precompute topic profiles (optional)      |

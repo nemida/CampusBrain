@@ -287,7 +287,7 @@ function tally(summary: BackfillSummary, id: string, r: IngestResult): "continue
  */
 export async function backfillSubjectResources(
   subjectId: string,
-  opts: { onlyMissing?: boolean | undefined } = {},
+  opts: { onlyMissing?: boolean | undefined; delayMs?: number | undefined } = {},
 ): Promise<BackfillSummary> {
   const resources = await prisma.resource.findMany({
     where: { subjectId, ...(opts.onlyMissing ? { chunks: { none: {} } } : {}) },
@@ -299,6 +299,7 @@ export async function backfillSubjectResources(
   for (const r of resources) {
     const res = await ingestResource(r.id, r.fileUrl, r.subjectId);
     if (tally(summary, r.id, res) === "stop") break;
+    if (opts.delayMs && opts.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, opts.delayMs));
   }
   return summary;
 }
@@ -306,7 +307,7 @@ export async function backfillSubjectResources(
 /** Re-ingest syllabus items for a syllabus. */
 export async function backfillSyllabus(
   syllabusId: string,
-  opts: { onlyMissing?: boolean | undefined } = {},
+  opts: { onlyMissing?: boolean | undefined; delayMs?: number | undefined } = {},
 ): Promise<BackfillSummary> {
   const items = await prisma.syllabusItem.findMany({
     where: { syllabusId, ...(opts.onlyMissing ? { chunks: { none: {} } } : {}) },
@@ -318,6 +319,7 @@ export async function backfillSyllabus(
   for (const item of items) {
     const res = await ingestSyllabusItem(item.id, item.subjectId, item.title, item.topics);
     if (tally(summary, item.id, res) === "stop") break;
+    if (opts.delayMs && opts.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, opts.delayMs));
   }
   return summary;
 }
