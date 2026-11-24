@@ -16,11 +16,16 @@
  * even though both are 768-dimensional.
  */
 import { env } from "./env.js";
+import { AsyncBatchCache } from "./asyncBatchCache.js";
 
 export const EMBEDDING_DIMS = 768;
 
 export type EmbeddingVector = number[];
 export type EmbeddingKind = "document" | "query";
+
+// ── In-process cache ──────────────────────────────────────────────────────────
+// Bound memory and share overlapping batches across searches, plans and ingestion.
+const embedCache = new AsyncBatchCache<EmbeddingVector>();
 
 const GEMINI_MODEL = "gemini-embedding-001";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:batchEmbedContents`;
@@ -46,25 +51,36 @@ export function embeddingsConfigured(): boolean {
 /** Human-readable id of the model currently in use (handy for logs). */
 export function embeddingModelName(): string | null {
   const p = activeProvider();
-  return p === "gemini" ? GEMINI_MODEL : p === "huggingface" ? "BAAI/bge-base-en-v1.5" : null;
+  return p === "gemini"
+    ? GEMINI_MODEL
+    : p === "huggingface"
+      ? "BAAI/bge-base-en-v1.5"
+      : null;
 }
 
 // ── HTTP with retry ───────────────────────────────────────────────────────────
 
-class NonRetryableError extends Error { }
+class NonRetryableError extends Error {}
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-const backoff = (attempt: number) => Math.min(30_000, 1000 * 2 ** attempt) + Math.random() * 500;
+const backoff = (attempt: number) =>
+  Math.min(30_000, 1000 * 2 ** attempt) + Math.random() * 500;
 
-async function postJson(url: string, headers: Record<string, string>, body: unknown): Promise<unknown> {
+async function postJson(
+  url: string,
+  headers: Record<string, string>,
+  body: unknown,
+  query = false,
+): Promise<unknown> {
+  const attempts = query ? 2 : MAX_ATTEMPTS;
   let lastErr: unknown;
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
     try {
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...headers },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        signal: AbortSignal.timeout(query ? 20_000 : REQUEST_TIMEOUT_MS),
       });
       if (res.ok) return (await res.json()) as unknown;
 
@@ -75,31 +91,40 @@ async function postJson(url: string, headers: Record<string, string>, body: unkn
       }
       lastErr = new Error(`HTTP ${res.status}: ${text}`);
       const retryAfter = Number(res.headers.get("retry-after"));
-      await sleep(retryAfter > 0 ? retryAfter * 1000 : backoff(attempt));
+      if (attempt + 1 < attempts)
+        await sleep(
+          Math.min(
+            query ? 2_000 : 30_000,
+            retryAfter > 0 ? retryAfter * 1000 : backoff(attempt),
+          ),
+        );
     } catch (e) {
       if (e instanceof NonRetryableError) throw e;
       lastErr = e; // network error / timeout
-      await sleep(backoff(attempt));
+      if (attempt + 1 < attempts)
+        await sleep(Math.min(query ? 2_000 : 30_000, backoff(attempt)));
     }
   }
   throw new Error(
-    `Embedding request failed after ${MAX_ATTEMPTS} attempts: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`,
+    `Embedding request failed after ${attempts} attempts: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`,
   );
 }
 
 // ── Vector utils ──────────────────────────────────────────────────────────────
 
 function l2Normalize(v: number[]): number[] {
-  const norm = Math.sqrt(v.reduce((s, x) => s + x * x, 0));
+  const norm = Math.hypot(...v);
   return norm > 0 ? v.map((x) => x / norm) : v;
 }
 
 function validate(vecs: unknown[], expected: number): EmbeddingVector[] {
   if (vecs.length !== expected) {
-    throw new Error(`Embedding provider returned ${vecs.length} vectors for ${expected} inputs`);
+    throw new Error(
+      `Embedding provider returned ${vecs.length} vectors for ${expected} inputs`,
+    );
   }
   return vecs.map((v) => {
-    if (!Array.isArray(v) || v.length !== EMBEDDING_DIMS || v.some((x) => typeof x !== "number")) {
+    if (!isValidEmbedding(v)) {
       throw new Error(
         `Unexpected embedding shape (got length ${Array.isArray(v) ? v.length : "n/a"}, need ${EMBEDDING_DIMS})`,
       );
@@ -108,9 +133,23 @@ function validate(vecs: unknown[], expected: number): EmbeddingVector[] {
   });
 }
 
+export function isValidEmbedding(value: unknown): value is EmbeddingVector {
+  return (
+    Array.isArray(value) &&
+    value.length === EMBEDDING_DIMS &&
+    value.every(
+      (entry) => typeof entry === "number" && Number.isFinite(entry),
+    ) &&
+    value.some((entry) => entry !== 0)
+  );
+}
+
 // ── Providers ─────────────────────────────────────────────────────────────────
 
-async function geminiBatch(texts: string[], kind: EmbeddingKind): Promise<EmbeddingVector[]> {
+async function geminiBatch(
+  texts: string[],
+  kind: EmbeddingKind,
+): Promise<EmbeddingVector[]> {
   const key = env.GEMINI_API_KEY ?? "";
   const taskType = kind === "query" ? "RETRIEVAL_QUERY" : "RETRIEVAL_DOCUMENT";
   const data = (await postJson(
@@ -124,12 +163,24 @@ async function geminiBatch(texts: string[], kind: EmbeddingKind): Promise<Embedd
         outputDimensionality: EMBEDDING_DIMS,
       })),
     },
+    kind === "query",
   )) as { embeddings?: { values?: number[] }[] };
-  return validate((data.embeddings ?? []).map((e) => e.values), texts.length);
+  return validate(
+    (data.embeddings ?? []).map((e) => e.values),
+    texts.length,
+  );
 }
 
-async function hfBatch(texts: string[]): Promise<EmbeddingVector[]> {
-  const data = await postJson(HF_URL, { Authorization: `Bearer ${env.HUGGINGFACE_API_KEY ?? ""}` }, { inputs: texts });
+async function hfBatch(
+  texts: string[],
+  kind: EmbeddingKind,
+): Promise<EmbeddingVector[]> {
+  const data = await postJson(
+    HF_URL,
+    { Authorization: `Bearer ${env.HUGGINGFACE_API_KEY ?? ""}` },
+    { inputs: texts },
+    kind === "query",
+  );
   return validate(Array.isArray(data) ? data : [], texts.length);
 }
 
@@ -148,26 +199,45 @@ export async function embedTexts(
   if (!provider) return null;
   if (texts.length === 0) return [];
 
-  const batchSize = provider === "gemini" ? 50 : 16;
-  const out: EmbeddingVector[] = [];
-  for (let i = 0; i < texts.length; i += batchSize) {
-    const slice = texts.slice(i, i + batchSize).map((t) => t.slice(0, 8000));
-    out.push(...(provider === "gemini" ? await geminiBatch(slice, kind) : await hfBatch(slice)));
-    if (i + batchSize < texts.length) await sleep(BATCH_PAUSE_MS);
-  }
-  return out;
+  const prefix = `${provider}:${kind}:`;
+  const keys = texts.map((text) => prefix + text.slice(0, 8000));
+  const vectors = await embedCache.getMany(keys, async (missing) => {
+    const batchSize = provider === "gemini" ? 50 : 16;
+    const out: EmbeddingVector[] = [];
+    for (let i = 0; i < missing.length; i += batchSize) {
+      const slice = missing
+        .slice(i, i + batchSize)
+        .map((key) => key.slice(prefix.length));
+      out.push(
+        ...(provider === "gemini"
+          ? await geminiBatch(slice, kind)
+          : await hfBatch(slice, kind)),
+      );
+      if (i + batchSize < missing.length) await sleep(BATCH_PAUSE_MS);
+    }
+    return out;
+  });
+  return vectors.map((vector) => [...vector]);
 }
 
 /**
  * Embed one text. Never throws: returns null if unconfigured OR on failure, so request-time
  * callers (retriever, MCQ, flashcards) can degrade gracefully. Pass kind="query" for search queries.
+ * Results share the bounded batch cache and overlapping in-flight requests.
  */
-export async function embedText(text: string, kind: EmbeddingKind = "document"): Promise<EmbeddingVector | null> {
+export async function embedText(
+  text: string,
+  kind: EmbeddingKind = "document",
+): Promise<EmbeddingVector | null> {
   try {
     const res = await embedTexts([text], kind);
-    return res?.[0] ?? null;
+    const vec = res?.[0] ?? null;
+    return vec;
   } catch (err) {
-    console.error("[Embeddings] failed:", err instanceof Error ? err.message : err);
+    console.error(
+      "[Embeddings] failed:",
+      err instanceof Error ? err.message : err,
+    );
     return null;
   }
 }

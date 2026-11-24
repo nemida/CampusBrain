@@ -12,32 +12,44 @@ import { requireAuth } from "../middleware/requireAuth.js";
 const router = Router();
 
 async function getOrCreateProfile(userId: string) {
-  return prisma.userProfile.upsert({
-    where: { userId },
-    update: {},
-    create: { userId },
-    include: {
-      branch: { select: { id: true, name: true, code: true } },
-      subjects: {
-        include: {
-          subject: {
-            select: { id: true, code: true, name: true, semester: true },
-          },
+  const include = {
+    branch: { select: { id: true, name: true, code: true } },
+    subjects: {
+      include: {
+        subject: {
+          select: { id: true, code: true, name: true, semester: true },
         },
       },
     },
+  };
+  const profile = await prisma.userProfile.findUnique({
+    where: { userId },
+    include,
   });
+  return (
+    profile ??
+    prisma.userProfile.upsert({
+      where: { userId },
+      update: {},
+      create: { userId },
+      include,
+    })
+  );
 }
 
 // GET /api/profile
-router.get("/", requireAuth(), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const profile = await getOrCreateProfile(req.user!.id);
-    res.json({ profile });
-  } catch (err) {
-    next(err);
-  }
-});
+router.get(
+  "/",
+  requireAuth(),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const profile = await getOrCreateProfile(req.user!.id);
+      res.json({ profile });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // PUT /api/profile
 const updateSchema = z.object({
@@ -46,34 +58,42 @@ const updateSchema = z.object({
   branchId: z.string().optional().nullable(),
 });
 
-router.put("/", requireAuth(), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const body = updateSchema.parse(req.body);
-    const profile = await prisma.userProfile.upsert({
-      where: { userId: req.user!.id },
-      update: {
-        ...(body.year !== undefined ? { year: body.year } : {}),
-        ...(body.semester !== undefined ? { semester: body.semester } : {}),
-        ...(body.branchId !== undefined ? { branchId: body.branchId } : {}),
-      },
-      create: {
-        userId: req.user!.id,
-        year: body.year ?? null,
-        semester: body.semester ?? null,
-        branchId: body.branchId ?? null,
-      },
-      include: {
-        branch: { select: { id: true, name: true, code: true } },
-        subjects: {
-          include: { subject: { select: { id: true, code: true, name: true, semester: true } } },
+router.put(
+  "/",
+  requireAuth(),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const body = updateSchema.parse(req.body);
+      const profile = await prisma.userProfile.upsert({
+        where: { userId: req.user!.id },
+        update: {
+          ...(body.year !== undefined ? { year: body.year } : {}),
+          ...(body.semester !== undefined ? { semester: body.semester } : {}),
+          ...(body.branchId !== undefined ? { branchId: body.branchId } : {}),
         },
-      },
-    });
-    res.json({ profile });
-  } catch (err) {
-    next(err);
-  }
-});
+        create: {
+          userId: req.user!.id,
+          year: body.year ?? null,
+          semester: body.semester ?? null,
+          branchId: body.branchId ?? null,
+        },
+        include: {
+          branch: { select: { id: true, name: true, code: true } },
+          subjects: {
+            include: {
+              subject: {
+                select: { id: true, code: true, name: true, semester: true },
+              },
+            },
+          },
+        },
+      });
+      res.json({ profile });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // POST /api/profile/subjects/:subjectId
 router.post(
@@ -82,7 +102,9 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const subjectId = String(req.params["subjectId"]);
-      const subject = await prisma.subject.findUnique({ where: { id: subjectId } });
+      const subject = await prisma.subject.findUnique({
+        where: { id: subjectId },
+      });
       if (!subject) {
         res.status(404).json({ error: "Subject not found" });
         return;
@@ -95,7 +117,9 @@ router.post(
       });
 
       await prisma.userProfileSubject.upsert({
-        where: { profileId_subjectId: { profileId: profile.id, subjectId: subject.id } },
+        where: {
+          profileId_subjectId: { profileId: profile.id, subjectId: subject.id },
+        },
         update: {},
         create: { profileId: profile.id, subjectId: subject.id },
       });
@@ -115,7 +139,9 @@ router.delete(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const subjectId = String(req.params["subjectId"]);
-      const profile = await prisma.userProfile.findUnique({ where: { userId: req.user!.id } });
+      const profile = await prisma.userProfile.findUnique({
+        where: { userId: req.user!.id },
+      });
       if (!profile) {
         res.status(404).json({ error: "Profile not found" });
         return;

@@ -11,24 +11,37 @@ export interface AppError extends Error {
 function normalise(err: AppError): { status: number; message: string } {
   if (err instanceof ZodError) {
     const message = err.issues
-      .map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message))
+      .map((i) =>
+        i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message,
+      )
       .join("; ");
     return { status: 400, message: message || "Invalid request" };
   }
 
   if (err instanceof multer.MulterError) {
-    const message = err.code === "LIMIT_FILE_SIZE" ? "File is too large (max 20 MB)" : err.message;
+    const message =
+      err.code === "LIMIT_FILE_SIZE"
+        ? "File exceeds the upload size limit for this endpoint"
+        : err.message;
     return { status: 400, message };
   }
 
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     if (err.code === "P2002")
-      return { status: 409, message: "A record with these details already exists" };
-    if (err.code === "P2025") return { status: 404, message: "Record not found" };
-    if (err.code === "P2003") return { status: 400, message: "Referenced record does not exist" };
+      return {
+        status: 409,
+        message: "A record with these details already exists",
+      };
+    if (err.code === "P2025")
+      return { status: 404, message: "Record not found" };
+    if (err.code === "P2003")
+      return { status: 400, message: "Referenced record does not exist" };
   }
 
-  if (err.message === "Only PDF files are allowed" || err.message.startsWith("Unknown examType")) {
+  if (
+    err.message === "Only PDF files are allowed" ||
+    err.message.startsWith("Unknown examType")
+  ) {
     return { status: 400, message: err.message };
   }
 
@@ -49,11 +62,17 @@ export function errorHandler(
   res: Response,
   _next: NextFunction,
 ): void {
+  if (res.headersSent) {
+    _next(err);
+    return;
+  }
   const { status, message } = normalise(err);
 
   if (status >= 500) {
     console.error("[ERROR]", err);
   }
 
-  res.status(status).json({ error: status < 500 ? message : "Internal server error" });
+  res
+    .status(status)
+    .json({ error: status < 500 ? message : "Internal server error" });
 }

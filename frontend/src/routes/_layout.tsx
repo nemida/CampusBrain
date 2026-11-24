@@ -39,13 +39,13 @@ function SharedLayout() {
         userName={user?.name}
         query={query}
         onQueryChange={setQuery}
+        botUrl={botUrl}
         onLoginClick={() => setLoginOpen(true)}
         onLogout={() => {
           void authLogout();
         }}
-        botUrl={botUrl}
       />
-      <Outlet />
+      <Outlet key={user?.id ?? "anonymous"} />
       <LoginModal
         open={loginOpen}
         onClose={() => setLoginOpen(false)}

@@ -30,11 +30,18 @@ export interface RetrieverOptions {
 
 // ── Core vector search ────────────────────────────────────────────────────────
 
-async function searchByVector(vecSql: string, opts: RetrieverOptions): Promise<RetrievedChunk[]> {
+async function searchByVector(
+  vecSql: string,
+  opts: RetrieverOptions,
+): Promise<RetrievedChunk[]> {
   const { type = "both", subjectId, paperOnly = false, minSimilarity } = opts;
   // topK is a number we control; inline it as a validated integer literal
-  const limit = Prisma.raw(String(Math.max(1, Math.min(100, Math.floor(opts.topK ?? 5)))));
-  const subjectFilter = subjectId ? Prisma.sql`AND c."subjectId" = ${subjectId}` : Prisma.empty;
+  const limit = Prisma.raw(
+    String(Math.max(1, Math.min(100, Math.floor(opts.topK ?? 5)))),
+  );
+  const subjectFilter = subjectId
+    ? Prisma.sql`AND c."subjectId" = ${subjectId}`
+    : Prisma.empty;
   const results: RetrievedChunk[] = [];
 
   // ── Resource chunks (PYQ papers) ─────────────────────────────────────────
@@ -79,7 +86,13 @@ async function searchByVector(vecSql: string, opts: RetrieverOptions): Promise<R
   // ── Syllabus chunks ───────────────────────────────────────────────────────
   if (type === "syllabus" || type === "both") {
     const rows = await prisma.$queryRaw<
-      { id: string; text: string; syllabusItemId: string; subjectId: string | null; similarity: number }[]
+      {
+        id: string;
+        text: string;
+        syllabusItemId: string;
+        subjectId: string | null;
+        similarity: number;
+      }[]
     >(Prisma.sql`
       SELECT c."id", c."text", c."syllabusItemId", c."subjectId",
              1 - (c."embedding" <=> ${vecSql}::vector) AS similarity
@@ -113,14 +126,17 @@ async function searchByVector(vecSql: string, opts: RetrieverOptions): Promise<R
  * Retrieve the most semantically relevant chunks for a natural-language query.
  * Returns [] if no embedding provider is configured or the embedding call fails.
  */
-export async function retrieveChunks(query: string, opts: RetrieverOptions = {}): Promise<RetrievedChunk[]> {
+export async function retrieveChunks(
+  query: string,
+  opts: RetrieverOptions = {},
+): Promise<RetrievedChunk[]> {
   const embedding = await embedText(query, "query");
   if (!embedding) return []; // callers degrade gracefully to prompt-only LLM
   return searchByVector(vectorToSql(embedding), opts);
 }
 
 const SCORE_TOP_K = 10;
-const SCORE_CONCURRENCY = 5;
+const SCORE_BATCH_SIZE = 20;
 
 /**
  * Rank topics by how strongly they show up in a subject's past papers.
@@ -144,27 +160,38 @@ export async function scoreTopicsByPYQFrequency(
   try {
     vectors = await embedTexts(unique, "query");
   } catch (err) {
-    console.error("[Retriever] topic scoring skipped, embedding failed:", err instanceof Error ? err.message : err);
+    console.error(
+      "[Retriever] topic scoring skipped, embedding failed:",
+      err instanceof Error ? err.message : err,
+    );
     return scores; // all zeros → caller keeps syllabus order
   }
   if (!vectors) return scores;
 
-  // Run the (cheap, local) SQL searches a few at a time
-  for (let i = 0; i < unique.length; i += SCORE_CONCURRENCY) {
-    const batch = unique.slice(i, i + SCORE_CONCURRENCY);
-    const scored = await Promise.all(
-      batch.map(async (topic, j) => {
-        const chunks = await searchByVector(vectorToSql(vectors![i + j]!), {
-          type: "resource",
-          subjectId,
-          topK: SCORE_TOP_K,
-          paperOnly: true,
-        });
-        const score = chunks.reduce((acc, c) => acc + Math.max(0, c.similarity), 0);
-        return { topic, score: Math.round(score * 1000) / 1000 };
-      }),
+  // Score in the database and return only totals. One round trip per 20 topics,
+  // rather than one query (and full chunk text payload) per topic.
+  for (let i = 0; i < unique.length; i += SCORE_BATCH_SIZE) {
+    const batch = unique.slice(i, i + SCORE_BATCH_SIZE);
+    const inputs = batch.map(
+      (topic, index) =>
+        Prisma.sql`(${topic}, ${vectorToSql(vectors![i + index]!)}::vector)`,
     );
-    for (const { topic, score } of scored) scores.set(topic, score);
+    const rows = await prisma.$queryRaw<
+      { topic: string; score: number }[]
+    >(Prisma.sql`
+      SELECT inputs.topic, COALESCE(SUM(GREATEST(0, matches.similarity)), 0)::float8 AS score
+      FROM (VALUES ${Prisma.join(inputs)}) AS inputs(topic, embedding)
+      LEFT JOIN LATERAL (
+        SELECT 1 - (c."embedding" <=> inputs.embedding) AS similarity
+        FROM "ResourceChunk" c JOIN "Resource" r ON r."id" = c."resourceId"
+        WHERE c."embedding" IS NOT NULL AND c."subjectId" = ${subjectId} AND r."type" = 'PAPER'
+        ORDER BY c."embedding" <=> inputs.embedding LIMIT ${SCORE_TOP_K}
+      ) matches ON true
+      GROUP BY inputs.topic
+    `);
+    for (const row of rows)
+      if (Number.isFinite(Number(row.score)))
+        scores.set(row.topic, Math.round(Number(row.score) * 1000) / 1000);
   }
 
   // Map original (untrimmed) topic strings to their trimmed scores

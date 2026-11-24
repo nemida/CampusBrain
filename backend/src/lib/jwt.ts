@@ -1,6 +1,17 @@
 import jwt from "jsonwebtoken";
 import { Role } from "@prisma/client";
 import { env } from "./env.js";
+import { z } from "zod";
+
+const accessClaims = z.object({
+  sub: z.string().min(1),
+  email: z.string().email(),
+  role: z.nativeEnum(Role),
+});
+const refreshClaims = z.object({
+  sub: z.string().min(1),
+  jti: z.string().min(1),
+});
 
 export interface AccessTokenPayload {
   sub: string; // user.id
@@ -26,9 +37,13 @@ export function signRefreshToken(payload: RefreshTokenPayload): string {
 }
 
 export function verifyAccessToken(token: string): AccessTokenPayload {
-  return jwt.verify(token, env.JWT_ACCESS_SECRET) as AccessTokenPayload;
+  return accessClaims.parse(
+    jwt.verify(token, env.JWT_ACCESS_SECRET, { algorithms: ["HS256"] }),
+  );
 }
 
 export function verifyRefreshToken(token: string): RefreshTokenPayload {
-  return jwt.verify(token, env.JWT_REFRESH_SECRET) as RefreshTokenPayload;
+  return refreshClaims.parse(
+    jwt.verify(token, env.JWT_REFRESH_SECRET, { algorithms: ["HS256"] }),
+  );
 }

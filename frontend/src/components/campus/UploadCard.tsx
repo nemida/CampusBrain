@@ -2,14 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { Upload, FileText, Loader2 } from "lucide-react";
 import { SEMESTERS, BRANCHES, type ExamType, type Paper } from "@/lib/campus-data";
 import { uploadPaper, fetchSubjects, ApiError } from "@/lib/api";
+import { ACCEPTED_UPLOAD_TYPES, uploadError } from "@/lib/uploads";
 
-const UPLOAD_YEARS = [2026, 2025, 2024, 2023, 2022, 2021];
+const UPLOAD_YEARS = Array.from({ length: 10 }, (_, index) => new Date().getFullYear() - index);
 
-const ACCEPTED_TYPES = "application/pdf,image/png,image/jpeg,image/webp,image/gif";
-
-function isAcceptedFile(file: File): boolean {
-  return file.type === "application/pdf" || file.type.startsWith("image/");
-}
+const ACCEPTED_TYPES = ACCEPTED_UPLOAD_TYPES.join(",");
 
 const selectClass =
   "h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition hover:border-primary/40 focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:opacity-60";
@@ -38,20 +35,37 @@ export function UploadCard({ onAdd }: Props) {
   >([]);
   const [subjectsLoading, setSubjectsLoading] = useState(false);
 
-  // Fetch all subjects once on mount
+  // Fetch only the selected course and cancel obsolete requests.
   useEffect(() => {
+    const controller = new AbortController();
     setSubjectsLoading(true);
-    fetchSubjects({})
+    setAllSubjects([]);
+    fetchSubjects({ branch: filterBranch, semester }, controller.signal)
       .then((data) => {
         setAllSubjects(
           data.map((s) => ({ code: s.code, name: s.name, semester: s.semester, branch: s.branch })),
         );
       })
       .catch(() => {
-        /* silently fail */
+        if (!controller.signal.aborted)
+          setMessage({
+            text: "Subjects couldn't be loaded. Try selecting the course again.",
+            error: true,
+          });
       })
-      .finally(() => setSubjectsLoading(false));
-  }, []);
+      .finally(() => {
+        if (!controller.signal.aborted) setSubjectsLoading(false);
+      });
+    return () => controller.abort();
+  }, [filterBranch, semester]);
+
+  function selectFile(next: File | undefined) {
+    if (!next) return;
+    const error = uploadError(next);
+    setMessage(error ? { text: error, error: true } : null);
+    setFile(error ? null : next);
+    if (error && inputRef.current) inputRef.current.value = "";
+  }
 
   // Subjects filtered by branch + semester
   const filteredSubjects = allSubjects.filter(
@@ -69,6 +83,7 @@ export function UploadCard({ onAdd }: Props) {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (uploading) return;
     if (!file) {
       setMessage({ text: "Please attach a PDF or image file first.", error: true });
       return;
@@ -102,6 +117,7 @@ export function UploadCard({ onAdd }: Props) {
 
       onAdd(paper);
       setFile(null);
+      if (inputRef.current) inputRef.current.value = "";
       setMessage({ text: `Uploaded to ${subjectCode} · Semester ${semester}.`, error: false });
     } catch (err) {
       const text = err instanceof ApiError ? err.message : "Upload failed. Please try again.";
@@ -118,7 +134,9 @@ export function UploadCard({ onAdd }: Props) {
           <Upload className="size-5" />
         </span>
         <div>
-          <h2 className="text-base font-semibold leading-tight text-foreground">Upload PYQ Paper</h2>
+          <h2 className="text-base font-semibold leading-tight text-foreground">
+            Upload PYQ Paper
+          </h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
             Add a previous year question paper to the repository.
           </p>
@@ -137,8 +155,7 @@ export function UploadCard({ onAdd }: Props) {
             e.preventDefault();
             setDragging(false);
             const dropped = e.dataTransfer.files?.[0];
-            if (dropped && isAcceptedFile(dropped)) setFile(dropped);
-            else setMessage({ text: "Only PDF or image files are accepted.", error: true });
+            selectFile(dropped);
           }}
           onClick={() => inputRef.current?.click()}
           className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors ${
@@ -161,7 +178,7 @@ export function UploadCard({ onAdd }: Props) {
             type="file"
             accept={ACCEPTED_TYPES}
             className="hidden"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            onChange={(e) => selectFile(e.target.files?.[0])}
           />
         </div>
 

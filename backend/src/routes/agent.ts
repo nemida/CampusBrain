@@ -22,7 +22,7 @@ const chatSchema = z.object({
     .array(
       z.object({
         role: z.enum(["user", "assistant"]),
-        content: z.string(),
+        content: z.string().max(16000),
       }),
     )
     .max(20)
@@ -45,6 +45,13 @@ router.post(
 
       // Keep the connection alive while the agent works
       const heartbeat = setInterval(() => res.write(": heartbeat\n\n"), 15_000);
+      let disconnected = false;
+      const controller = new AbortController();
+      res.once("close", () => {
+        disconnected = true;
+        controller.abort();
+        clearInterval(heartbeat);
+      });
 
       try {
         await streamAgent(
@@ -52,8 +59,9 @@ router.post(
           req.user!.id,
           body.history as ChatTurn[],
           (event) => {
-            res.write(`data: ${JSON.stringify(event)}\n\n`);
+            if (!disconnected) res.write(`data: ${JSON.stringify(event)}\n\n`);
           },
+          controller.signal,
         );
       } finally {
         clearInterval(heartbeat);
@@ -64,7 +72,9 @@ router.post(
       if (!res.headersSent) {
         next(err);
       } else {
-        res.write(`data: ${JSON.stringify({ type: "error", message: "Stream error" })}\n\n`);
+        res.write(
+          `data: ${JSON.stringify({ type: "error", message: "Stream error" })}\n\n`,
+        );
         res.end();
       }
     }

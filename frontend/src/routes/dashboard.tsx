@@ -1,7 +1,16 @@
 ﻿import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { BookOpen, ChevronDown, ChevronUp, Download, MessageSquare, Tag, Trash2, ArrowRight } from "lucide-react";
+import {
+  BookOpen,
+  ChevronDown,
+  ChevronUp,
+  Download,
+  MessageSquare,
+  Tag,
+  Trash2,
+  ArrowRight,
+} from "lucide-react";
 
 import { Header } from "@/components/campus/Header";
 import { LoginModal } from "@/components/campus/LoginModal";
@@ -29,6 +38,10 @@ import { useAuthStore, logout as authLogout } from "@/lib/auth";
 import { toneStyle } from "@/lib/tone";
 
 export const Route = createFileRoute("/dashboard")({
+  validateSearch: (search: Record<string, unknown>): { q?: string } =>
+    typeof search["q"] === "string" && search["q"].trim()
+      ? { q: search["q"].trim().slice(0, 200) }
+      : {},
   head: () => ({
     meta: [
       { title: "CampusBrain Previous Year Papers & AI Study Assistant" },
@@ -51,11 +64,15 @@ export const Route = createFileRoute("/dashboard")({
 const selectClass = "field";
 
 function Dashboard() {
+  const search = Route.useSearch();
   const { user } = useAuthStore();
   const isAdmin = user?.role === "ADMIN" || user?.role === "TEACHER";
 
   const [loginOpen, setLoginOpen] = useState(false);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(search.q ?? "");
+  useEffect(() => {
+    setQuery(search.q ?? "");
+  }, [search.q]);
 
   // Filters
   const [year, setYear] = useState<string>("2nd Year");
@@ -94,33 +111,40 @@ function Dashboard() {
     let cancelled = false;
     setSubjectsLoading(true);
     setSubjectsError(null);
-
-    fetchSubjects({ branch, semester, search: query.trim() || undefined })
-      .then((data) => {
-        if (!cancelled) {
-          setSubjects(
-            data.map((s) => ({
-              id: s.id,
-              code: s.code,
-              name: s.name,
-              semester: s.semester,
-              branch: s.branch,
-              paperCount: s.paperCount,
-            })),
-          );
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setSubjectsError(err instanceof ApiError ? err.message : "Failed to load subjects.");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setSubjectsLoading(false);
-      });
+    const controller = new AbortController();
+    const timer = window.setTimeout(
+      () => {
+        fetchSubjects({ branch, semester, search: query.trim() || undefined }, controller.signal)
+          .then((data) => {
+            if (!cancelled) {
+              setSubjects(
+                data.map((s) => ({
+                  id: s.id,
+                  code: s.code,
+                  name: s.name,
+                  semester: s.semester,
+                  branch: s.branch,
+                  paperCount: s.paperCount,
+                })),
+              );
+            }
+          })
+          .catch((err) => {
+            if (!cancelled) {
+              setSubjectsError(err instanceof ApiError ? err.message : "Failed to load subjects.");
+            }
+          })
+          .finally(() => {
+            if (!cancelled) setSubjectsLoading(false);
+          });
+      },
+      query.trim() ? 250 : 0,
+    );
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
+      controller.abort();
     };
   }, [branch, semester, query]);
 
@@ -266,16 +290,15 @@ function Dashboard() {
         userName={user?.name}
         query={query}
         onQueryChange={setQuery}
+        botUrl={baseBotUrl}
         onLoginClick={() => setLoginOpen(true)}
         onLogout={() => {
           void authLogout();
         }}
-        botUrl={baseBotUrl}
       />
 
       <main className="mx-auto max-w-7xl space-y-8 px-6 py-10">
         <div>
-
           <h1 className="mt-1 text-3xl font-bold tracking-tight text-foreground">
             Previous year question papers
           </h1>
@@ -295,7 +318,12 @@ function Dashboard() {
               <span className="field-label">Year</span>
               <div className="segmented" role="group" aria-label="Select year">
                 {YEARS.map((y) => (
-                  <button key={y} type="button" aria-pressed={y === year} onClick={() => handleYearChange(y)}>
+                  <button
+                    key={y}
+                    type="button"
+                    aria-pressed={y === year}
+                    onClick={() => handleYearChange(y)}
+                  >
                     {y}
                   </button>
                 ))}
@@ -351,7 +379,10 @@ function Dashboard() {
             </h2>
             {activeSubject && (
               <button
-                onClick={() => { setActiveSubject(null); setSyllabi([]); }}
+                onClick={() => {
+                  setActiveSubject(null);
+                  setSyllabi([]);
+                }}
                 className="text-xs font-medium text-primary hover:underline"
               >
                 Clear subject filter
@@ -378,19 +409,14 @@ function Dashboard() {
               <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-accent text-primary">
                 <BookOpen className="size-5" />
               </div>
-              <p className="mt-4 text-lg font-semibold text-foreground">
-                Nothing here yet
-              </p>
+              <p className="mt-4 text-lg font-semibold text-foreground">Nothing here yet</p>
               <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
                 {query.trim()
                   ? `No subjects match "${query.trim()}" in this semester.`
                   : "No subjects are listed for this branch and semester. Try another semester or branch."}
               </p>
               {query.trim() && (
-                <button
-                  onClick={() => setQuery("")}
-                  className="btn btn-outline btn-sm mt-4"
-                >
+                <button onClick={() => setQuery("")} className="btn btn-outline btn-sm mt-4">
                   Clear search
                 </button>
               )}
@@ -417,7 +443,10 @@ function Dashboard() {
                         {(s.paperCount ?? countFor(s.code)) === 1 ? "paper" : "papers"}
                       </span>
                       <button
-                        onClick={() => { setActiveSubject(s.code); setSyllabusOpen(true); }}
+                        onClick={() => {
+                          setActiveSubject(s.code);
+                          setSyllabusOpen(true);
+                        }}
                         aria-pressed={active}
                         className={`btn btn-sm ${active ? "btn-primary" : "btn-outline"}`}
                       >
@@ -433,66 +462,65 @@ function Dashboard() {
         </section>
 
         {/* Syllabus panel — shown when a subject is selected and has syllabus data */}
-        {activeSubject && selectedSubject && (() => {
-          const subjectUnits = syllabi.flatMap((s) =>
-            s.items.filter((i) => i.subjectId === selectedSubject.id),
-          );
-          if (subjectUnits.length === 0) return null;
-          return (
-            <section className="card">
-              <button
-                onClick={() => setSyllabusOpen((o) => !o)}
-                className="flex w-full items-center justify-between px-5 py-4 text-left"
-                aria-expanded={syllabusOpen}
-              >
-                <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                  <BookOpen className="size-4 text-primary" />
-                  Syllabus &middot; {selectedSubject.name}
-                </span>
-                {syllabusOpen ? (
-                  <ChevronUp className="size-4 text-muted-foreground" />
-                ) : (
-                  <ChevronDown className="size-4 text-muted-foreground" />
-                )}
-              </button>
+        {activeSubject &&
+          selectedSubject &&
+          (() => {
+            const subjectUnits = syllabi.flatMap((s) =>
+              s.items.filter((i) => i.subjectId === selectedSubject.id),
+            );
+            if (subjectUnits.length === 0) return null;
+            return (
+              <section className="card">
+                <button
+                  onClick={() => setSyllabusOpen((o) => !o)}
+                  className="flex w-full items-center justify-between px-5 py-4 text-left"
+                  aria-expanded={syllabusOpen}
+                >
+                  <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <BookOpen className="size-4 text-primary" />
+                    Syllabus &middot; {selectedSubject.name}
+                  </span>
+                  {syllabusOpen ? (
+                    <ChevronUp className="size-4 text-muted-foreground" />
+                  ) : (
+                    <ChevronDown className="size-4 text-muted-foreground" />
+                  )}
+                </button>
 
-              {syllabusOpen && (
-                <div className="divide-y divide-border border-t border-border px-5 pb-2">
-                  {subjectUnits
-                    .sort((a, b) => a.unitNumber - b.unitNumber)
-                    .map((unit) => (
-                      <div key={unit.id} className="py-4">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                              Unit {unit.unitNumber}
-                              {unit.hours ? ` · ${unit.hours}h` : ""}
-                            </span>
-                            <p className="mt-0.5 text-sm font-medium text-foreground">
-                              {unit.title}
-                            </p>
-                          </div>
-                        </div>
-                        {unit.topics.length > 0 && (
-                          <div className="mt-3 flex flex-wrap gap-1.5">
-                            {unit.topics.map((t) => (
-                              <span
-                                key={t}
-                                className="chip"
-                              >
-                                <Tag className="size-2.5" />
-                                {t}
+                {syllabusOpen && (
+                  <div className="divide-y divide-border border-t border-border px-5 pb-2">
+                    {subjectUnits
+                      .sort((a, b) => a.unitNumber - b.unitNumber)
+                      .map((unit) => (
+                        <div key={unit.id} className="py-4">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                                Unit {unit.unitNumber}
+                                {unit.hours ? ` · ${unit.hours}h` : ""}
                               </span>
-                            ))}
+                              <p className="mt-0.5 text-sm font-medium text-foreground">
+                                {unit.title}
+                              </p>
+                            </div>
                           </div>
-                        )}
-                      </div>
-                    ))}
-                </div>
-              )}
-            </section>
-          );
-        })()}
+                          {unit.topics.length > 0 && (
+                            <div className="mt-3 flex flex-wrap gap-1.5">
+                              {unit.topics.map((t) => (
+                                <span key={t} className="chip">
+                                  <Tag className="size-2.5" />
+                                  {t}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </section>
+            );
+          })()}
 
         <section className="space-y-4">
           <h2 className="text-base font-semibold text-foreground">
@@ -554,7 +582,11 @@ function Dashboard() {
                   visiblePapers.map((p) => {
                     const subject = subjects.find((s) => s.code === p.subjectCode);
                     return (
-                      <tr key={p.id} style={toneStyle(subject?.id ?? p.subjectCode ?? "")} className="border-b border-border last:border-0 hover:bg-muted/30">
+                      <tr
+                        key={p.id}
+                        style={toneStyle(subject?.id ?? p.subjectCode ?? "")}
+                        className="border-b border-border last:border-0 hover:bg-muted/30"
+                      >
                         <td className="px-5 py-4">
                           <div className="font-medium text-foreground">{p.title}</div>
                           <div className="mt-0.5 text-xs text-muted-foreground">
@@ -563,9 +595,7 @@ function Dashboard() {
                           </div>
                         </td>
                         <td className="px-5 py-4">
-                          <span className="chip chip-tone">
-                            {p.examType}
-                          </span>
+                          <span className="chip chip-tone">{p.examType}</span>
                         </td>
                         <td className="px-5 py-4 text-muted-foreground">PDF &middot; {p.size}</td>
                         <td className="px-5 py-4">

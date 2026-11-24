@@ -63,7 +63,9 @@ function RegisterPage() {
             <Brain className="size-6 text-primary-foreground" />
           </div>
 
-          <h1 className="mt-1 text-3xl font-bold tracking-tight text-foreground">Create your account</h1>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight text-foreground">
+            Create your account
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Already have one?{" "}
             <Link to="/dashboard" className="font-medium text-primary hover:underline">
@@ -136,11 +138,7 @@ function RegisterPage() {
               </p>
             )}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="btn btn-primary w-full"
-            >
+            <button type="submit" disabled={loading} className="btn btn-primary w-full">
               {loading && <Loader2 className="size-4 animate-spin" />}
               {loading ? "Creating account…" : "Create Account"}
             </button>

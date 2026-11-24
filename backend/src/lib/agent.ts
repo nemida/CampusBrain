@@ -19,7 +19,11 @@ import { GraphRecursionError } from "@langchain/langgraph";
 import { AIMessage, HumanMessage, BaseMessage } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { env } from "./env.js";
-import { buildAgentTools, fetchUserProfile, type AgentArtifact } from "./agentTools.js";
+import {
+  buildAgentTools,
+  fetchUserProfile,
+  type AgentArtifact,
+} from "./agentTools.js";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -30,7 +34,15 @@ export interface AgentEvent {
    * "retry" means the attempt failed and a new one is starting (e.g. after a
    * rate limit): clear any partial answer text you've rendered so far.
    */
-  type: "tool_call" | "tool_result" | "artifact" | "token" | "message" | "retry" | "done" | "error";
+  type:
+    | "tool_call"
+    | "tool_result"
+    | "artifact"
+    | "token"
+    | "message"
+    | "retry"
+    | "done"
+    | "error";
   /** Correlates a tool_call with its tool_result. */
   id?: string;
   name?: string;
@@ -63,7 +75,8 @@ interface Candidate {
  * Comma-separated, tried in order. Check your Groq console for current IDs.
  */
 const GROQ_MODELS = (
-  process.env.GROQ_MODELS ?? "openai/gpt-oss-120b,qwen/qwen3.8-27b,openai/gpt-oss-20b"
+  process.env.GROQ_MODELS ??
+  "openai/gpt-oss-120b,qwen/qwen3.8-27b,openai/gpt-oss-20b"
 )
   .split(",")
   .map((s) => s.trim())
@@ -89,7 +102,9 @@ const MAX_OUTPUT_TOKENS = 1200;
 /** Tools that write to the DB. We never auto-retry after one has run. */
 const WRITE_TOOLS = new Set(["generate_mcq", "generate_flashcards"]);
 
-const buildSystemPrompt = (profileJson: string) => `You are CampusBrain's AI study coach for university students: you search past papers and questions, build study plans, and create quizzes and flashcards.
+const buildSystemPrompt = (
+  profileJson: string,
+) => `You are CampusBrain's AI study coach for university students: you search past papers and questions, build study plans, and create quizzes and flashcards.
 Today: ${new Date().toISOString().slice(0, 10)}
 
 Student profile (already loaded; don't ask for it again):
@@ -137,7 +152,9 @@ function contentToText(content: unknown): string {
 }
 
 function truncate(s: string, max: number): string {
-  return s.length <= max ? s : `${s.slice(0, max)}… [truncated ${s.length - max} chars]`;
+  return s.length <= max
+    ? s
+    : `${s.slice(0, max)}… [truncated ${s.length - max} chars]`;
 }
 
 function stringify(value: unknown): string {
@@ -149,7 +166,8 @@ function stringify(value: unknown): string {
   }
 }
 
-const errText = (err: unknown) => (err instanceof Error ? err.message : String(err));
+const errText = (err: unknown) =>
+  err instanceof Error ? err.message : String(err);
 
 function toLangChainHistory(history: ChatTurn[]): BaseMessage[] {
   return history
@@ -163,12 +181,16 @@ function toLangChainHistory(history: ChatTurn[]): BaseMessage[] {
 
 /** Model produced a bad tool call; a retry on the same model often succeeds. */
 function isRecoverableToolError(err: unknown): boolean {
-  return /tool call validation failed|tool_use_failed|failed to call a function/i.test(errText(err));
+  return /tool call validation failed|tool_use_failed|failed to call a function/i.test(
+    errText(err),
+  );
 }
 
 /** Model ID doesn't exist or this org has no access: skip it for the rest of the request. */
 function isModelUnavailable(err: unknown): boolean {
-  return /model_not_found|does not exist or you do not have access|decommissioned/i.test(errText(err));
+  return /model_not_found|does not exist or you do not have access|decommissioned/i.test(
+    errText(err),
+  );
 }
 
 function isRateLimit(err: unknown): boolean {
@@ -195,7 +217,9 @@ const sleep = (ms: number, signal?: AbortSignal) =>
   new Promise<void>((resolve) => {
     if (signal?.aborted) return resolve();
     const t = setTimeout(resolve, ms);
-    signal?.addEventListener("abort", () => (clearTimeout(t), resolve()), { once: true });
+    signal?.addEventListener("abort", () => (clearTimeout(t), resolve()), {
+      once: true,
+    });
   });
 
 /** Turn raw provider/graph errors into something a student can read. */
@@ -237,7 +261,9 @@ function groqModel(name: string): ChatGroq {
       timeout: REQUEST_TIMEOUT_MS,
       maxTokens: MAX_OUTPUT_TOKENS, // counts toward the per-minute token limit
       // gpt-oss reasons before answering; "low" saves tokens (and quota) on every step.
-      ...(name.startsWith("openai/gpt-oss") ? { modelKwargs: { reasoning_effort: "low" } } : {}),
+      ...(name.startsWith("openai/gpt-oss")
+        ? { modelKwargs: { reasoning_effort: "low" } }
+        : {}),
     });
     groqCache.set(name, m);
   }
@@ -252,7 +278,9 @@ function geminiCandidate(): Promise<Candidate | null> {
       // Variable specifier so the build doesn't require the package.
       const pkg = "@langchain/google-genai";
       const mod = (await import(pkg)) as {
-        ChatGoogleGenerativeAI: new (opts: Record<string, unknown>) => BaseChatModel;
+        ChatGoogleGenerativeAI: new (
+          opts: Record<string, unknown>,
+        ) => BaseChatModel;
       };
       const model = new mod.ChatGoogleGenerativeAI({
         model: GEMINI_MODEL,
@@ -274,10 +302,12 @@ function geminiCandidate(): Promise<Candidate | null> {
 }
 
 async function getCandidates(): Promise<Candidate[]> {
-  const list: Candidate[] = GROQ_MODELS.map((name) => ({
-    label: `groq:${name}`,
-    model: groqModel(name),
-  }));
+  const list: Candidate[] = (env.GROQ_API_KEY ? GROQ_MODELS : []).map(
+    (name) => ({
+      label: `groq:${name}`,
+      model: groqModel(name),
+    }),
+  );
   const gemini = await geminiCandidate();
   if (gemini) {
     // Groq's free token limits are tiny; GEMINI_FIRST=true tries Gemini first.
@@ -304,14 +334,19 @@ export async function streamAgent(
   onEvent: (event: AgentEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  if (!env.GROQ_API_KEY) {
-    onEvent({ type: "error", message: "AI service is not configured (GROQ_API_KEY missing)." });
+  if (!env.GROQ_API_KEY && !env.GEMINI_API_KEY) {
+    onEvent({
+      type: "error",
+      message: "AI service is not configured. Add a Groq or Gemini API key.",
+    });
     onEvent({ type: "done" });
     return;
   }
 
   const candidates = await getCandidates();
-  const tools = buildAgentTools(userId, (artifact) => onEvent({ type: "artifact", artifact }));
+  const tools = buildAgentTools(userId, (artifact) =>
+    onEvent({ type: "artifact", artifact }),
+  );
   const profileJson = await fetchUserProfile(userId);
   const systemPrompt = buildSystemPrompt(profileJson);
   const baseHistory = toLangChainHistory(history);
@@ -330,13 +365,20 @@ export async function streamAgent(
     const userText = nudge
       ? `${message}\n\n(Note: keep tool arguments within the documented limits, e.g. at most 3 topics per search.)`
       : message;
-    const messages: BaseMessage[] = [...baseHistory, new HumanMessage(userText)];
+    const messages: BaseMessage[] = [
+      ...baseHistory,
+      new HumanMessage(userText),
+    ];
 
     let finalText = "";
     let wroteToDb = false;
 
     try {
-      const agent = createReactAgent({ llm: cand.model, tools, prompt: systemPrompt });
+      const agent = createReactAgent({
+        llm: cand.model,
+        tools,
+        prompt: systemPrompt,
+      });
       const eventStream = agent.streamEvents(
         { messages },
         { version: "v2", recursionLimit: RECURSION_LIMIT, signal },
@@ -352,78 +394,88 @@ export async function streamAgent(
           if (done) break;
 
           switch (ev.event) {
-          case "on_chat_model_stream": {
-            if (ev.metadata?.langgraph_node && ev.metadata.langgraph_node !== "agent") break;
-            const delta = contentToText(ev.data?.chunk?.content);
-            if (delta) {
-              finalText += delta;
-              onEvent({ type: "token", content: delta });
+            case "on_chat_model_stream": {
+              if (
+                ev.metadata?.langgraph_node &&
+                ev.metadata.langgraph_node !== "agent"
+              )
+                break;
+              const delta = contentToText(ev.data?.chunk?.content);
+              if (delta) {
+                finalText += delta;
+                onEvent({ type: "token", content: delta });
+              }
+              break;
             }
-            break;
-          }
 
-          // A tool-calling turn's text is "thinking out loud", not the answer.
-          case "on_chat_model_end": {
-            const out = ev.data?.output as AIMessage | undefined;
-            if (out?.tool_calls && out.tool_calls.length > 0) finalText = "";
-            break;
-          }
+            // A tool-calling turn's text is "thinking out loud", not the answer.
+            case "on_chat_model_end": {
+              const out = ev.data?.output as AIMessage | undefined;
+              if (out?.tool_calls && out.tool_calls.length > 0) finalText = "";
+              break;
+            }
 
-          case "on_tool_start": {
-            onEvent({
-              type: "tool_call",
-              id: ev.run_id,
-              name: ev.name,
-              args: stringify(ev.data?.input),
-            });
-            break;
-          }
+            case "on_tool_start": {
+              onEvent({
+                type: "tool_call",
+                id: ev.run_id,
+                name: ev.name,
+                args: stringify(ev.data?.input),
+              });
+              break;
+            }
 
-          case "on_tool_end": {
-            if (WRITE_TOOLS.has(ev.name)) wroteToDb = true;
-            const output = ev.data?.output;
-            const raw =
-              output && typeof output === "object" && "content" in output
-                ? contentToText((output as { content: unknown }).content)
-                : stringify(output);
-            onEvent({
-              type: "tool_result",
-              id: ev.run_id,
-              name: ev.name,
-              result: truncate(raw, MAX_RESULT_CHARS_TO_CLIENT),
-            });
-            break;
-          }
+            case "on_tool_end": {
+              if (WRITE_TOOLS.has(ev.name)) wroteToDb = true;
+              const output = ev.data?.output;
+              const raw =
+                output && typeof output === "object" && "content" in output
+                  ? contentToText((output as { content: unknown }).content)
+                  : stringify(output);
+              onEvent({
+                type: "tool_result",
+                id: ev.run_id,
+                name: ev.name,
+                result: truncate(raw, MAX_RESULT_CHARS_TO_CLIENT),
+              });
+              break;
+            }
 
-          case "on_tool_error": {
-            onEvent({
-              type: "tool_result",
-              id: ev.run_id,
-              name: ev.name,
-              result: "Tool failed. The agent will try another approach.",
-            });
-            break;
+            case "on_tool_error": {
+              onEvent({
+                type: "tool_result",
+                id: ev.run_id,
+                name: ev.name,
+                result: "Tool failed. The agent will try another approach.",
+              });
+              break;
+            }
           }
         }
-      }
       } finally {
         // Always close the generator to release any held resources.
         await iter.return?.();
       }
 
-      if (finalText.trim()) onEvent({ type: "message", content: finalText.trim() });
+      if (finalText.trim())
+        onEvent({ type: "message", content: finalText.trim() });
       onEvent({ type: "done" });
       return;
     } catch (err) {
       lastError = err;
-      console.error(`[Agent] attempt ${attempt}/${MAX_ATTEMPTS} on ${cand.label} failed:`, errText(err));
+      console.error(
+        `[Agent] attempt ${attempt}/${MAX_ATTEMPTS} on ${cand.label} failed:`,
+        errText(err),
+      );
 
       if (signal?.aborted) break;
       // Retrying after a DB write would create duplicate quizzes/flashcards.
       if (wroteToDb) break;
 
       if (isModelUnavailable(err)) {
-        console.warn(`[Agent] ${cand.label} is unavailable for this key; skipping it.`);
+        console.warn(
+          `[Agent] ${cand.label} is unavailable for this key; skipping it.`,
+        );
         exhaustedToday.add(cand.label);
         onEvent({ type: "retry" });
         continue;
@@ -434,7 +486,9 @@ export async function streamAgent(
         triedThisRound.add(cand.label);
         idx++;
 
-        const stillLive = candidates.filter((c) => !exhaustedToday.has(c.label));
+        const stillLive = candidates.filter(
+          (c) => !exhaustedToday.has(c.label),
+        );
         if (stillLive.length === 0) break;
 
         // Every live model just 429'd: wait for the per-minute window, then loop again.

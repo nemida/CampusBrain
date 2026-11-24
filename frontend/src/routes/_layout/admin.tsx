@@ -1,7 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Loader2, BookOpen, GraduationCap, ShieldAlert, Layers, Pencil, Check, X } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  Loader2,
+  BookOpen,
+  GraduationCap,
+  ShieldAlert,
+  Layers,
+  Pencil,
+  Check,
+  X,
+} from "lucide-react";
 
 import { LoginModal } from "@/components/campus/LoginModal";
 import { useAuthStore } from "@/lib/auth";
@@ -47,12 +58,18 @@ function AdminPage() {
   // Subject filters
   const [filterBranchId, setFilterBranchId] = useState("");
   const [filterSem, setFilterSem] = useState("");
+  const selectedBranchName = branches.find((branch) => branch.id === filterBranchId)?.name;
+  const matchesFilters = (subject: ApiSubject) =>
+    (!selectedBranchName || subject.branch === selectedBranchName) &&
+    (!filterSem || subject.semester === Number(filterSem));
 
   async function loadBranches() {
     try {
       setBranches(await fetchBranches());
-    } catch {
-      /* ignore — branches list is best-effort */
+    } catch (error) {
+      toast.error(
+        error instanceof ApiError ? error.message : "Branches couldn't be loaded. Reload to retry.",
+      );
     }
   }
 
@@ -63,20 +80,28 @@ function AdminPage() {
 
   useEffect(() => {
     if (!isAdminUser) return;
+    const controller = new AbortController();
     setLoading(true);
     setError(null);
-    fetchSubjects({
-      branch: filterBranchId
-        ? branches.find((b) => b.id === filterBranchId)?.name
-        : undefined,
-      semester: filterSem ? Number(filterSem) : undefined,
-    })
-      .then(setSubjects)
-      .catch((err) =>
-        setError(err instanceof ApiError ? err.message : "Failed to load subjects."),
-      )
-      .finally(() => setLoading(false));
-  }, [isAdminUser, filterBranchId, filterSem, branches]);
+    fetchSubjects(
+      {
+        branchId: filterBranchId || undefined,
+        semester: filterSem ? Number(filterSem) : undefined,
+      },
+      controller.signal,
+    )
+      .then((subjects) => {
+        if (!controller.signal.aborted) setSubjects(subjects);
+      })
+      .catch((err) => {
+        if (!controller.signal.aborted)
+          setError(err instanceof ApiError ? err.message : "Failed to load subjects.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [isAdminUser, filterBranchId, filterSem]);
 
   /* ── Not logged in / not admin ── */
 
@@ -90,13 +115,14 @@ function AdminPage() {
         <p className="mt-1.5 text-sm text-muted-foreground">
           Sign in with an admin account to manage branches and subjects.
         </p>
-        <button
-          onClick={() => setLoginOpen(true)}
-          className="btn btn-primary mt-6"
-        >
+        <button onClick={() => setLoginOpen(true)} className="btn btn-primary mt-6">
           Sign In
         </button>
-        <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} onSuccess={() => setLoginOpen(false)} />
+        <LoginModal
+          open={loginOpen}
+          onClose={() => setLoginOpen(false)}
+          onSuccess={() => setLoginOpen(false)}
+        />
       </main>
     );
   }
@@ -121,7 +147,6 @@ function AdminPage() {
   return (
     <main className="mx-auto max-w-4xl space-y-10 px-6 py-10">
       <div>
-
         <h1 className="mt-1 text-3xl font-bold tracking-tight text-foreground">Admin Panel</h1>
         <p className="mt-2 text-muted-foreground">
           Manage branches and add subjects to any branch and semester.
@@ -149,7 +174,7 @@ function AdminPage() {
           branches={branches}
           onCreated={(s) => {
             setSubjects((prev) =>
-              [...prev, s].sort(
+              (matchesFilters(s) ? [...prev, s] : prev).sort(
                 (a, b) => a.semester - b.semester || a.code.localeCompare(b.code),
               ),
             );
@@ -228,12 +253,10 @@ function AdminPage() {
                     branches={branches}
                     onUpdated={(updated) =>
                       setSubjects((prev) =>
-                        prev.map((x) => (x.id === updated.id ? updated : x)),
+                        prev.map((x) => (x.id === updated.id ? updated : x)).filter(matchesFilters),
                       )
                     }
-                    onDeleted={() =>
-                      setSubjects((prev) => prev.filter((x) => x.id !== s.id))
-                    }
+                    onDeleted={() => setSubjects((prev) => prev.filter((x) => x.id !== s.id))}
                   />
                 ))}
               </tbody>
@@ -247,13 +270,7 @@ function AdminPage() {
 
 /* ───────────────────────── branches ───────────────────────── */
 
-function BranchSection({
-  branches,
-  onChange,
-}: {
-  branches: ApiBranch[];
-  onChange: () => void;
-}) {
+function BranchSection({ branches, onChange }: { branches: ApiBranch[]; onChange: () => void }) {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: "", code: "" });
   const [saving, setSaving] = useState(false);
@@ -303,10 +320,7 @@ function BranchSection({
             Create a branch before adding subjects to it.
           </p>
         </div>
-        <button
-          onClick={() => setShowAdd((v) => !v)}
-          className="btn btn-primary btn-sm shrink-0"
-        >
+        <button onClick={() => setShowAdd((v) => !v)} className="btn btn-primary btn-sm shrink-0">
           <Plus className="size-4" />
           Add Branch
         </button>
@@ -343,11 +357,7 @@ function BranchSection({
             </p>
           )}
           <div className="flex gap-2 sm:col-span-2">
-            <button
-              type="submit"
-              disabled={saving}
-              className="btn btn-primary btn-sm"
-            >
+            <button type="submit" disabled={saving} className="btn btn-primary btn-sm">
               {saving && <Loader2 className="size-3.5 animate-spin" />}
               Create
             </button>
@@ -373,9 +383,7 @@ function BranchSection({
               className="tone-bg-soft flex items-center gap-2 rounded-full py-1 pl-3 pr-1"
             >
               <span className="tone-text text-sm font-medium">{b.name}</span>
-              <span className="font-mono text-[10px] text-muted-foreground">
-                {b.code}
-              </span>
+              <span className="font-mono text-[10px] text-muted-foreground">{b.code}</span>
               <button
                 onClick={() => void handleDelete(b)}
                 aria-label={`Delete ${b.name}`}
@@ -439,10 +447,7 @@ function SubjectAddForm({
 
   if (!open) {
     return (
-      <button
-        onClick={() => setOpen(true)}
-        className="btn btn-outline btn-sm"
-      >
+      <button onClick={() => setOpen(true)} className="btn btn-outline btn-sm">
         <Plus className="size-4" />
         Add Subject
       </button>
@@ -450,10 +455,7 @@ function SubjectAddForm({
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="card space-y-4 p-6"
-    >
+    <form onSubmit={handleSubmit} className="card space-y-4 p-6">
       <h3 className="text-sm font-semibold text-foreground">Add a subject</h3>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
@@ -683,7 +685,11 @@ function SubjectRow({
               title="Save"
               className="btn btn-primary btn-sm btn-icon"
             >
-              {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+              {saving ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Check className="size-3.5" />
+              )}
             </button>
             <button
               type="button"

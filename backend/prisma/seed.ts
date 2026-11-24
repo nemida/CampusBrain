@@ -41,7 +41,11 @@ function filenameToPretty(filename: string): string {
 }
 
 /** Scan OUTPUT/ and return a flat list of subjects */
-function scanSubjects(): { name: string; branchCode: string; semester: number }[] {
+function scanSubjects(): {
+  name: string;
+  branchCode: string;
+  semester: number;
+}[] {
   const subjects: { name: string; branchCode: string; semester: number }[] = [];
   const seen = new Set<string>(); // deduplicate name+branchCode+semester
 
@@ -86,7 +90,20 @@ async function main() {
   console.log("🌱  Seeding CampusBrain database…\n");
 
   // ── Users ─────────────────────────────────────────────────────────────────
-  const adminHash = await bcrypt.hash("admin", 12);
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD || "admin";
+  const teacherPassword = process.env.SEED_TEACHER_PASSWORD || "teacher123";
+  if (
+    process.env.NODE_ENV === "production" &&
+    (!process.env.SEED_ADMIN_PASSWORD ||
+      !process.env.SEED_TEACHER_PASSWORD ||
+      adminPassword.length < 12 ||
+      teacherPassword.length < 12)
+  ) {
+    throw new Error(
+      "Production seeding requires SEED_ADMIN_PASSWORD and SEED_TEACHER_PASSWORD (at least 12 characters each)",
+    );
+  }
+  const adminHash = await bcrypt.hash(adminPassword, 12);
   const admin = await prisma.user.upsert({
     where: { email: "admin@campusbrain.edu" },
     update: {},
@@ -99,7 +116,7 @@ async function main() {
   });
   console.log(`✅  Admin user:   ${admin.email}`);
 
-  const teacherHash = await bcrypt.hash("teacher123", 12);
+  const teacherHash = await bcrypt.hash(teacherPassword, 12);
   await prisma.user.upsert({
     where: { email: "teacher@campusbrain.edu" },
     update: {},
@@ -147,8 +164,12 @@ async function main() {
   console.log(`✅  ${subjectCount} subjects seeded from OUTPUT/`);
 
   console.log("\n🎉  Seed complete!");
-  console.log("    Admin login:   admin@campusbrain.edu  /  admin");
-  console.log("    Teacher login: teacher@campusbrain.edu  /  teacher123");
+  console.log(
+    "    Accounts: admin@campusbrain.edu and teacher@campusbrain.edu",
+  );
+  console.log(
+    "    Existing account passwords are unchanged; new accounts use the configured seed passwords.",
+  );
 }
 
 main()

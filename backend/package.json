@@ -7,6 +7,9 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc --project tsconfig.json",
+    "typecheck": "tsc --noEmit --project tsconfig.json",
+    "test": "node --import tsx --test tests/regression.test.ts",
+    "test:retrieval:live": "tsx tests/liveRetrievalSmoke.ts",
     "start": "node dist/index.js",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",

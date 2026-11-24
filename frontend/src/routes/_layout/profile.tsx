@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { User, BookOpen, Plus, X, Loader2, Check } from "lucide-react";
 
-
 import { LoginModal } from "@/components/campus/LoginModal";
 import { useAuthStore } from "@/lib/auth";
 import {
@@ -22,7 +21,6 @@ export const Route = createFileRoute("/_layout/profile")({
   head: () => ({ meta: [{ title: "My Profile — CampusBrain" }] }),
   component: ProfilePage,
 });
-
 
 const YEARS = [1, 2, 3, 4];
 const SEMS_BY_YEAR: Record<number, number[]> = { 1: [1, 2], 2: [3, 4], 3: [5, 6], 4: [7, 8] };
@@ -49,17 +47,27 @@ function ProfilePage() {
 
   useEffect(() => {
     if (!user) return;
+    let current = true;
+    setError(null);
     setLoading(true);
     Promise.all([fetchProfile(), fetchBranches()])
       .then(([p, b]) => {
+        if (!current) return;
         setProfile(p);
         setBranches(b);
         setYear(p.year);
         setSemester(p.semester);
         setBranchId(p.branchId);
       })
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Failed to load profile."))
-      .finally(() => setLoading(false));
+      .catch((err) => {
+        if (current) setError(err instanceof ApiError ? err.message : "Failed to load profile.");
+      })
+      .finally(() => {
+        if (current) setLoading(false);
+      });
+    return () => {
+      current = false;
+    };
   }, [user]);
 
   // Load subjects whenever branch+semester change
@@ -68,14 +76,16 @@ function ProfilePage() {
       setSubjects([]);
       return;
     }
-    const branch = branches.find((b) => b.id === branchId);
-    if (!branch) return;
-    fetchSubjects({ branch: branch.name, semester })
+    const controller = new AbortController();
+    setSubjects([]);
+    fetchSubjects({ branchId, semester }, controller.signal)
       .then(setSubjects)
       .catch(() => undefined);
-  }, [branchId, semester, branches]);
+    return () => controller.abort();
+  }, [branchId, semester]);
 
   async function handleSave() {
+    setError(null);
     setSaving(true);
     try {
       const updated = await updateProfile({ year, semester, branchId });
@@ -88,6 +98,7 @@ function ProfilePage() {
   }
 
   async function handleAddSubject(subjectId: string) {
+    setError(null);
     setAddingSubject(true);
     try {
       const updated = await addProfileSubject(subjectId);
@@ -100,6 +111,7 @@ function ProfilePage() {
   }
 
   async function handleRemoveSubject(subjectId: string) {
+    setError(null);
     try {
       const updated = await removeProfileSubject(subjectId);
       setProfile(updated);
@@ -126,10 +138,7 @@ function ProfilePage() {
           <p className="mt-2 text-sm text-muted-foreground">
             Tell us your year and branch so we can personalise your study plan and dashboard.
           </p>
-          <button
-            onClick={() => setLoginOpen(true)}
-            className="btn btn-primary mt-5 w-full"
-          >
+          <button onClick={() => setLoginOpen(true)} className="btn btn-primary mt-5 w-full">
             Sign In
           </button>
         </div>
@@ -145,7 +154,6 @@ function ProfilePage() {
   return (
     <main className="mx-auto max-w-2xl space-y-6 px-4 py-10">
       <div>
-
         <h1 className="mt-1 text-3xl font-bold tracking-tight text-foreground">My Profile</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Set your year and branch so Study Plan and Dashboard know your subjects.
@@ -153,9 +161,7 @@ function ProfilePage() {
       </div>
 
       {error && (
-        <p className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </p>
+        <p className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{error}</p>
       )}
 
       {loading ? (
@@ -231,11 +237,7 @@ function ProfilePage() {
               </div>
             </div>
 
-            <button
-              onClick={() => void handleSave()}
-              disabled={saving}
-              className="btn btn-primary"
-            >
+            <button onClick={() => void handleSave()} disabled={saving} className="btn btn-primary">
               {saving ? (
                 <Loader2 className="size-3.5 animate-spin" />
               ) : (
@@ -317,8 +319,6 @@ function ProfilePage() {
               </p>
             )}
           </section>
-
-
         </>
       )}
     </main>

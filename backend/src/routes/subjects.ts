@@ -13,10 +13,12 @@ import { z } from "zod";
 import { Role, Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/requireAuth.js";
+import { lockRow } from "../lib/rowLocks.js";
 
 const router = Router();
 
 const querySchema = z.object({
+  branchId: z.string().min(1).optional(),
   branch: z.string().optional(), // branch name, e.g. "Computer Science"
   branchCode: z.string().optional(), // branch code, e.g. "CS"
   semester: z.coerce.number().int().min(1).max(8).optional(),
@@ -55,6 +57,7 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 
     const subjects = await prisma.subject.findMany({
       where: {
+        ...(query.branchId ? { branchId: query.branchId } : {}),
         ...(query.semester ? { semester: query.semester } : {}),
         ...(query.branch || query.branchCode
           ? {
@@ -144,7 +147,9 @@ router.post(
       ) {
         res
           .status(409)
-          .json({ error: `Subject code "${req.body.code}" already exists for this branch` });
+          .json({
+            error: `Subject code "${req.body.code}" already exists for this branch`,
+          });
         return;
       }
       next(err);
@@ -171,7 +176,9 @@ router.patch(
 
       // If moving to a new branch, make sure it exists
       if (body.branchId) {
-        const branch = await prisma.branch.findUnique({ where: { id: body.branchId } });
+        const branch = await prisma.branch.findUnique({
+          where: { id: body.branchId },
+        });
         if (!branch) {
           res.status(404).json({ error: "Branch not found" });
           return;
@@ -195,7 +202,9 @@ router.patch(
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === "P2002"
       ) {
-        res.status(409).json({ error: "Subject code already exists for this branch" });
+        res
+          .status(409)
+          .json({ error: "Subject code already exists for this branch" });
         return;
       }
       if (
@@ -220,15 +229,25 @@ router.delete(
       const id = String(String(req.params["id"]));
 
       // Block deletion when papers/resources exist — cascading would destroy them.
-      const count = await prisma.resource.count({ where: { subjectId: id } });
+      const count = await prisma.$transaction(async (tx) => {
+        if (!(await lockRow(tx, "Subject", id))) return -1;
+        const count = await tx.resource.count({ where: { subjectId: id } });
+        if (count === 0) await tx.subject.delete({ where: { id } });
+        return count;
+      });
+      if (count === -1) {
+        res.status(404).json({ error: "Subject not found" });
+        return;
+      }
       if (count > 0) {
         res
           .status(409)
-          .json({ error: `Cannot delete: ${count} paper(s) are attached to this subject. Remove them first.` });
+          .json({
+            error: `Cannot delete: ${count} paper(s) are attached to this subject. Remove them first.`,
+          });
         return;
       }
 
-      await prisma.subject.delete({ where: { id } });
       res.status(204).send();
     } catch (err) {
       if (

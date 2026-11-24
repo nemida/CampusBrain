@@ -7,7 +7,7 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { Toaster } from "@/components/ui/sonner";
@@ -36,7 +36,10 @@ function NotFoundComponent() {
 }
 
 function ErrorComponent({ error: rawError, reset }: { error: unknown; reset: () => void }) {
-  const error = rawError instanceof Error ? rawError : new Error(String(rawError));
+  const error = useMemo(
+    () => (rawError instanceof Error ? rawError : new Error(String(rawError))),
+    [rawError],
+  );
   console.error(error);
   const router = useRouter();
   useEffect(() => {
@@ -105,7 +108,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;600;700&display=swap",
       },
-      { rel: "icon", href: "/logo.png", type: "image/x-icon" },
+      { rel: "icon", href: "/logo.png", type: "image/png" },
     ],
   }),
   shellComponent: RootShell,

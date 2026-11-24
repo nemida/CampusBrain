@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Layers, Plus, RotateCcw, BookOpen, Loader2, Trash2, Zap } from "lucide-react";
 
@@ -25,9 +25,15 @@ export const Route = createFileRoute("/_layout/flashcards")({
   component: FlashcardsPage,
 });
 
-
-
-function FlipCard({ card, onRate }: { card: ApiFlashcard; onRate: (q: number) => void }) {
+function FlipCard({
+  card,
+  onRate,
+  saving,
+}: {
+  card: ApiFlashcard;
+  onRate: (q: number) => void;
+  saving: boolean;
+}) {
   const [flipped, setFlipped] = useState(false);
 
   return (
@@ -52,7 +58,9 @@ function FlipCard({ card, onRate }: { card: ApiFlashcard; onRate: (q: number) =>
             className="absolute inset-0 flex items-center justify-center card p-8 shadow-lg"
             style={{ backfaceVisibility: "hidden" }}
           >
-            <p className="text-center text-xl font-semibold leading-snug text-foreground">{card.front}</p>
+            <p className="text-center text-xl font-semibold leading-snug text-foreground">
+              {card.front}
+            </p>
           </div>
           {/* Back */}
           <div
@@ -71,12 +79,25 @@ function FlipCard({ card, onRate }: { card: ApiFlashcard; onRate: (q: number) =>
       {flipped && (
         <div className="flex justify-center gap-3">
           {[
-            { label: "Hard", q: 1, cls: "bg-destructive/10 text-destructive hover:bg-destructive/20" },
-            { label: "Okay", q: 3, cls: "bg-amber-500/15 text-amber-700 hover:bg-amber-500/25 dark:text-amber-400" },
-            { label: "Easy", q: 5, cls: "bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-400" },
+            {
+              label: "Hard",
+              q: 1,
+              cls: "bg-destructive/10 text-destructive hover:bg-destructive/20",
+            },
+            {
+              label: "Okay",
+              q: 3,
+              cls: "bg-amber-500/15 text-amber-700 hover:bg-amber-500/25 dark:text-amber-400",
+            },
+            {
+              label: "Easy",
+              q: 5,
+              cls: "bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-400",
+            },
           ].map((btn) => (
             <button
               key={btn.q}
+              disabled={saving}
               onClick={() => onRate(btn.q)}
               className={`btn px-6 ${btn.cls}`}
             >
@@ -112,6 +133,8 @@ function FlashcardsPage() {
   );
   const [studyIdx, setStudyIdx] = useState(0);
   const [studyLoading, setStudyLoading] = useState(false);
+  const ratingInFlight = useRef(false);
+  const [ratingSaving, setRatingSaving] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -141,6 +164,7 @@ function FlashcardsPage() {
   }, [user]);
 
   function loadSets() {
+    setError(null);
     setLoading(true);
     fetchFlashcardSets()
       .then(setSets)
@@ -198,13 +222,21 @@ function FlashcardsPage() {
   }
 
   async function handleRate(quality: number) {
-    if (!studySet) return;
+    if (!studySet || ratingInFlight.current) return;
     const card = studySet.cards[studyIdx];
     if (!card) return;
+    ratingInFlight.current = true;
+    setRatingSaving(true);
     try {
       await reviewFlashcard(card.id, quality);
-    } catch {
-      // best-effort
+    } catch (error) {
+      toast.error(
+        error instanceof ApiError ? error.message : "Review wasn't saved. Please try again.",
+      );
+      return;
+    } finally {
+      ratingInFlight.current = false;
+      setRatingSaving(false);
     }
     // Next card or done
     if (studyIdx + 1 < studySet.cards.length) {
@@ -239,10 +271,7 @@ function FlashcardsPage() {
           <p className="mt-2 text-sm text-muted-foreground">
             Generate AI flashcards from any topic and study with spaced repetition.
           </p>
-          <button
-            onClick={() => setLoginOpen(true)}
-            className="btn btn-primary mt-5 w-full"
-          >
+          <button onClick={() => setLoginOpen(true)} className="btn btn-primary mt-5 w-full">
             Sign In
           </button>
         </div>
@@ -263,10 +292,7 @@ function FlashcardsPage() {
         <div className="w-full max-w-lg space-y-6">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-foreground">{studySet.title}</h2>
-            <button
-              onClick={() => setStudySet(null)}
-              className="btn btn-ghost btn-sm"
-            >
+            <button onClick={() => setStudySet(null)} className="btn btn-ghost btn-sm">
               Exit
             </button>
           </div>
@@ -285,7 +311,7 @@ function FlashcardsPage() {
             </div>
           </div>
           {card ? (
-            <FlipCard key={card.id} card={card} onRate={handleRate} />
+            <FlipCard key={card.id} card={card} onRate={handleRate} saving={ratingSaving} />
           ) : (
             <p className="text-center text-sm text-muted-foreground">No cards to study.</p>
           )}
@@ -299,16 +325,12 @@ function FlashcardsPage() {
       <main className="mx-auto max-w-4xl space-y-8 px-6 py-10">
         <div className="flex items-start justify-between gap-4">
           <div>
-
             <h1 className="mt-1 text-3xl font-bold tracking-tight text-foreground">Flashcards</h1>
             <p className="mt-1.5 text-sm text-muted-foreground">
               AI-generated flashcards with spaced repetition (SM-2).
             </p>
           </div>
-          <button
-            onClick={() => setShowGenerate((v) => !v)}
-            className="btn btn-primary shrink-0"
-          >
+          <button onClick={() => setShowGenerate((v) => !v)} className="btn btn-primary shrink-0">
             <Plus className="size-4" />
             Generate Set
           </button>
@@ -369,7 +391,12 @@ function FlashcardsPage() {
                 <span className="field-label">Number of cards</span>
                 <div className="segmented" role="group" aria-label="Number of cards">
                   {[10, 20, 30].map((n) => (
-                    <button key={n} type="button" aria-pressed={genCount === n} onClick={() => setGenCount(n)}>
+                    <button
+                      key={n}
+                      type="button"
+                      aria-pressed={genCount === n}
+                      onClick={() => setGenCount(n)}
+                    >
                       {n}
                     </button>
                   ))}
@@ -381,11 +408,7 @@ function FlashcardsPage() {
                 </p>
               )}
               <div className="flex gap-2">
-                <button
-                  type="submit"
-                  disabled={genLoading}
-                  className="btn btn-primary"
-                >
+                <button type="submit" disabled={genLoading} className="btn btn-primary">
                   {genLoading ? (
                     <Loader2 className="size-3.5 animate-spin" />
                   ) : (
@@ -411,9 +434,7 @@ function FlashcardsPage() {
             <Loader2 className="size-4 animate-spin" /> Loading sets...
           </div>
         ) : error ? (
-          <p className="rounded-xl bg-destructive/10 p-4 text-sm text-destructive">
-            {error}
-          </p>
+          <p className="rounded-xl bg-destructive/10 p-4 text-sm text-destructive">{error}</p>
         ) : sets.length === 0 ? (
           <div className="card p-12 text-center">
             <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-accent text-primary">
@@ -427,11 +448,7 @@ function FlashcardsPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {sets.map((s) => (
-              <div
-                key={s.id}
-                style={toneStyle(s.id)}
-                className="card tone-accent-l space-y-4 p-5"
-              >
+              <div key={s.id} style={toneStyle(s.id)} className="card tone-accent-l space-y-4 p-5">
                 <div>
                   <h3 className="text-sm font-semibold text-foreground">{s.title}</h3>
                   {s.topic && <p className="mt-0.5 text-xs text-muted-foreground">{s.topic}</p>}

@@ -84,7 +84,8 @@ function summarizeToolResult(result: string): string {
   try {
     const parsed = JSON.parse(result);
     if (Array.isArray(parsed)) return `${parsed.length} item${parsed.length !== 1 ? "s" : ""}`;
-    if (Array.isArray(parsed?.topics) && parsed.subject) return `${parsed.topics.length} topics ranked`;
+    if (Array.isArray(parsed?.topics) && parsed.subject)
+      return `${parsed.topics.length} topics ranked`;
     if (parsed?.message) return String(parsed.message).slice(0, 120);
     if (parsed?.questions) return `${parsed.questions.length} questions`;
     if (parsed?.cards) return `${parsed.cards.length} flashcards`;
@@ -124,17 +125,11 @@ function MockPaperCard({ paper }: { paper: ApiMockPaper }) {
             {total} questions · {paper.totalMarks} marks · {paper.durationMinutes} min
           </p>
         </div>
-        <button
-          onClick={() => setOpen((o) => !o)}
-          className="btn btn-outline btn-sm"
-        >
+        <button onClick={() => setOpen((o) => !o)} className="btn btn-outline btn-sm">
           {open ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
           {open ? "Hide" : "Preview"}
         </button>
-        <button
-          onClick={() => downloadMockPaperPdf(paper)}
-          className="btn btn-primary btn-sm"
-        >
+        <button onClick={() => downloadMockPaperPdf(paper)} className="btn btn-primary btn-sm">
           <Download className="size-3.5" />
           Download PDF
         </button>
@@ -155,7 +150,9 @@ function MockPaperCard({ paper }: { paper: ApiMockPaper }) {
                         {q.source ? ` (${q.source})` : ""}
                       </p>
                     </div>
-                    <span className="shrink-0 text-xs font-semibold text-foreground">[{q.marks}]</span>
+                    <span className="shrink-0 text-xs font-semibold text-foreground">
+                      [{q.marks}]
+                    </span>
                   </li>
                 ))}
               </ol>
@@ -180,8 +177,12 @@ function dropStreamingTail(items: ChatItem[], turn: number): ChatItem[] {
 
 // Styled by hand so this works without the Tailwind typography plugin.
 const mdComponents: Components = {
-  h1: ({ children }) => <h3 className="mb-1.5 mt-3 text-base font-semibold first:mt-0">{children}</h3>,
-  h2: ({ children }) => <h3 className="mb-1.5 mt-3 text-base font-semibold first:mt-0">{children}</h3>,
+  h1: ({ children }) => (
+    <h3 className="mb-1.5 mt-3 text-base font-semibold first:mt-0">{children}</h3>
+  ),
+  h2: ({ children }) => (
+    <h3 className="mb-1.5 mt-3 text-base font-semibold first:mt-0">{children}</h3>
+  ),
   h3: ({ children }) => <h4 className="mb-1 mt-3 text-sm font-semibold first:mt-0">{children}</h4>,
   h4: ({ children }) => <h4 className="mb-1 mt-2 text-sm font-semibold first:mt-0">{children}</h4>,
   p: ({ children }) => <p className="my-2 leading-relaxed first:mt-0 last:mb-0">{children}</p>,
@@ -190,13 +191,20 @@ const mdComponents: Components = {
   li: ({ children }) => <li className="leading-relaxed">{children}</li>,
   strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
   a: ({ href, children }) => (
-    <a href={href} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="text-primary underline underline-offset-2"
+    >
       {children}
     </a>
   ),
   hr: () => <hr className="my-3 border-border" />,
   blockquote: ({ children }) => (
-    <blockquote className="my-2 border-l-2 border-border pl-3 text-muted-foreground">{children}</blockquote>
+    <blockquote className="my-2 border-l-2 border-border pl-3 text-muted-foreground">
+      {children}
+    </blockquote>
   ),
   code: ({ children, className }) =>
     className ? (
@@ -313,7 +321,9 @@ function AgentPage() {
                 (it) =>
                   it.kind === "tool" &&
                   it.turn === turn &&
-                  (event.id ? it.id === event.id : it.name === event.name && it.result === undefined),
+                  (event.id
+                    ? it.id === event.id
+                    : it.name === event.name && it.result === undefined),
               );
               if (idx === -1) return prev;
               const copy = [...prev];
@@ -406,13 +416,14 @@ function AgentPage() {
           Sign in to chat with your AI study coach — it can search past papers, find questions, and
           create quizzes and flashcards for you.
         </p>
-        <button
-          onClick={() => setLoginOpen(true)}
-          className="btn btn-primary mt-6 px-6"
-        >
+        <button onClick={() => setLoginOpen(true)} className="btn btn-primary mt-6 px-6">
           Sign In
         </button>
-        <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} onSuccess={() => setLoginOpen(false)} />
+        <LoginModal
+          open={loginOpen}
+          onClose={() => setLoginOpen(false)}
+          onSuccess={() => setLoginOpen(false)}
+        />
       </main>
     );
   }
@@ -430,8 +441,8 @@ function AgentPage() {
         <div>
           <h1 className="text-lg font-bold tracking-tight text-foreground">AI Study Coach</h1>
           <p className="text-xs text-muted-foreground">
-                      Finds common topics & past questions, builds mock papers, quizzes & flashcards
-                    </p>
+            Finds common topics & past questions, builds mock papers, quizzes & flashcards
+          </p>
         </div>
       </div>
 
@@ -442,10 +453,12 @@ function AgentPage() {
             <div className="flex size-12 items-center justify-center rounded-full bg-accent text-primary">
               <Sparkles className="size-6" />
             </div>
-            <p className="mt-4 text-base font-semibold text-foreground">Ask me anything about your studies</p>
+            <p className="mt-4 text-base font-semibold text-foreground">
+              Ask me anything about your studies
+            </p>
             <p className="mt-1 max-w-md text-sm text-muted-foreground">
-              I can rank your most-asked topics, find past questions, build a mock paper PDF, and create
-              quizzes and flashcards.
+              I can rank your most-asked topics, find past questions, build a mock paper PDF, and
+              create quizzes and flashcards.
             </p>
             <div className="mt-6 flex flex-wrap justify-center gap-2">
               {SUGGESTIONS.map((s) => (
@@ -492,11 +505,16 @@ function AgentPage() {
           const argSummary = summarizeToolArgs(item.args);
           const done = item.result !== undefined;
           return (
-            <div key={item.id} className="w-fit max-w-full rounded-2xl bg-muted/60 px-3 py-1.5 text-xs text-muted-foreground">
+            <div
+              key={item.id}
+              className="w-fit max-w-full rounded-2xl bg-muted/60 px-3 py-1.5 text-xs text-muted-foreground"
+            >
               <div className="flex items-center gap-2">
                 <Icon className="size-3.5 shrink-0 text-primary" />
                 <span>{meta.label}</span>
-                {argSummary && <span className="truncate text-muted-foreground/70">{argSummary}</span>}
+                {argSummary && (
+                  <span className="truncate text-muted-foreground/70">{argSummary}</span>
+                )}
                 <span className="ml-auto shrink-0">
                   {done ? (
                     <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400" />
@@ -506,7 +524,9 @@ function AgentPage() {
                 </span>
               </div>
               {done && (
-                <p className="mt-0.5 pl-5 text-muted-foreground/80">{summarizeToolResult(item.result!)}</p>
+                <p className="mt-0.5 pl-5 text-muted-foreground/80">
+                  {summarizeToolResult(item.result!)}
+                </p>
               )}
             </div>
           );
@@ -521,9 +541,7 @@ function AgentPage() {
         )}
 
         {error && (
-          <p className="rounded-xl bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            {error}
-          </p>
+          <p className="rounded-xl bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>
         )}
       </div>
 

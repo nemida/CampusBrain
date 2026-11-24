@@ -172,13 +172,7 @@ const tickerItems = [
 /* -------------------------------------------------------------------------- */
 
 /** Pulls its child slightly toward the user's cursor with spring physics */
-function Magnetic({
-  children,
-  strength = 0.28,
-}: {
-  children: React.ReactNode;
-  strength?: number;
-}) {
+function Magnetic({ children, strength = 0.28 }: { children: React.ReactNode; strength?: number }) {
   const ref = useRef<HTMLDivElement>(null);
   const x = useMotionValue(0);
   const y = useMotionValue(0);
@@ -233,7 +227,7 @@ function ScrambleText({ text, active }: { text: string; active: boolean }) {
             if (idx < frame / 1.5) return text[idx] ?? ch;
             return glyphs[Math.floor(Math.random() * glyphs.length)] ?? ch;
           })
-          .join("")
+          .join(""),
       );
       frame++;
       if (frame >= text.length * 1.5 + 2) {
@@ -279,10 +273,11 @@ function ToolLivePreview({ type }: { type: (typeof tools)[number]["previewType"]
           {["Hard · 10m", "Okay · 1d", "Easy · 4d"].map((b, i) => (
             <span
               key={b}
-              className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${i === 2
-                ? "border-primary bg-primary text-primary-foreground"
-                : "border-border bg-secondary text-muted-foreground"
-                }`}
+              className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${
+                i === 2
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-secondary text-muted-foreground"
+              }`}
             >
               {b}
             </span>
@@ -307,10 +302,11 @@ function ToolLivePreview({ type }: { type: (typeof tools)[number]["previewType"]
           ].map((o) => (
             <div
               key={o.label}
-              className={`flex items-center justify-between rounded border px-2 py-1 text-[11px] ${o.ok
-                ? "border-primary bg-highlight/35 font-semibold text-foreground"
-                : "border-border text-muted-foreground"
-                }`}
+              className={`flex items-center justify-between rounded border px-2 py-1 text-[11px] ${
+                o.ok
+                  ? "border-primary bg-highlight/35 font-semibold text-foreground"
+                  : "border-border text-muted-foreground"
+              }`}
             >
               <span>{o.label}</span>
               {o.ok && <span>✓ +10 XP</span>}
@@ -377,6 +373,11 @@ function ToolLivePreview({ type }: { type: (typeof tools)[number]["previewType"]
 
 function LandingPage() {
   const [botUrl, setBotUrl] = useState<string | null>(null);
+  useEffect(() => {
+    fetchBotUrl()
+      .then(setBotUrl)
+      .catch(() => undefined);
+  }, []);
   const [activePaperIdx, setActivePaperIdx] = useState(0);
   const [isHoveringPaper, setIsHoveringPaper] = useState(false);
   const [hoveredTool, setHoveredTool] = useState<string | null>(null);
@@ -423,12 +424,6 @@ function LandingPage() {
     mouseY.set(0);
   };
 
-  useEffect(() => {
-    fetchBotUrl()
-      .then(setBotUrl)
-      .catch(() => undefined);
-  }, []);
-
   // Auto-cycle hero paper unless hovered
   useEffect(() => {
     if (isHoveringPaper) return;
@@ -457,9 +452,7 @@ function LandingPage() {
             >
               <Brain className="size-4" />
             </motion.span>
-            <span className="font-display text-lg font-semibold tracking-tight">
-              CampusBrain
-            </span>
+            <span className="font-display text-lg font-semibold tracking-tight">CampusBrain</span>
           </Link>
 
           <div className="flex items-center gap-6 text-sm">
@@ -577,8 +570,8 @@ function LandingPage() {
             className="mt-6 max-w-xl text-lg leading-relaxed text-muted-foreground"
           >
             CampusBrain keeps every previous year question paper in one place, then helps you
-            actually use them: ask questions about a paper, quiz yourself, and plan the weeks
-            before exams.
+            actually use them: ask questions about a paper, quiz yourself, and plan the weeks before
+            exams.
           </motion.p>
 
           {/* Magnetic CTAs */}
@@ -619,9 +612,7 @@ function LandingPage() {
             transition={{ delay: 0.8 }}
             className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-muted-foreground"
           >
-            <div className="flex items-center gap-1.5">
-              No account needed to browse & download.
-            </div>
+            <div className="flex items-center gap-1.5">No account needed to browse & download.</div>
           </motion.div>
         </div>
 
@@ -643,10 +634,11 @@ function LandingPage() {
                     key={p.code}
                     type="button"
                     onClick={() => setActivePaperIdx(idx)}
-                    className={`relative overflow-hidden rounded px-2.5 py-1 text-xs font-semibold transition-all ${isActive
-                      ? "bg-primary text-primary-foreground shadow-[2px_2px_0_0_var(--color-border)]"
-                      : "border border-border bg-card text-muted-foreground hover:text-foreground"
-                      }`}
+                    className={`relative overflow-hidden rounded px-2.5 py-1 text-xs font-semibold transition-all ${
+                      isActive
+                        ? "bg-primary text-primary-foreground shadow-[2px_2px_0_0_var(--color-border)]"
+                        : "border border-border bg-card text-muted-foreground hover:text-foreground"
+                    }`}
                   >
                     {p.branch}
                     {isActive && !isHoveringPaper && (
@@ -987,8 +979,7 @@ function LandingPage() {
                     ))}
                   </div>
                   <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-primary">
-                    <span className="size-2 animate-ping rounded-full bg-primary" />
-                    4 syncing plan
+                    <span className="size-2 animate-ping rounded-full bg-primary" />4 syncing plan
                   </span>
                 </div>
               </div>
@@ -1091,9 +1082,7 @@ function LandingPage() {
 
           <div className="relative z-10 flex flex-col justify-between gap-8 md:flex-row md:items-center">
             <div>
-              <h2 className="max-w-xl text-3xl sm:text-4xl">
-                Exams are closer than they feel.
-              </h2>
+              <h2 className="max-w-xl text-3xl sm:text-4xl">Exams are closer than they feel.</h2>
               <p className="mt-3 max-w-lg text-primary-foreground/80">
                 Start with the papers. Everything else is optional.
               </p>

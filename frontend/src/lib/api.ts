@@ -12,7 +12,12 @@
 
 // ── Base URL ─────────────────────────────────────────────────────────────────
 
-const BASE = (import.meta.env["VITE_API_URL"] as string | undefined) ?? "http://localhost:4000";
+import { readJsonEventStream } from "./sse";
+import { RequestPool } from "./requestPool";
+
+const BASE = (
+  (import.meta.env["VITE_API_URL"] as string | undefined) || "http://localhost:4000"
+).replace(/\/+$/, "");
 
 // ── Token storage (in-memory + localStorage) ─────────────────────────────────
 
@@ -79,13 +84,15 @@ function refreshAccessToken(): Promise<boolean> {
       });
       if (!res.ok) {
         // Only a definitive rejection should end the session, not a 5xx / rate limit
-        if (res.status === 401 || res.status === 403) {
+        if ((res.status === 401 || res.status === 403) && getRefreshToken() === refreshToken) {
           clearTokens();
           authLostHandler?.();
         }
         return false;
       }
       const data = (await res.json()) as { accessToken: string; refreshToken: string };
+      // Logout or a newer login may have happened while this request was in flight.
+      if (getRefreshToken() !== refreshToken) return false;
       storeTokens(data.accessToken, data.refreshToken);
       return true;
     } catch {
@@ -112,7 +119,30 @@ export class ApiError extends Error {
 
 // ── Core fetch helper ─────────────────────────────────────────────────────────
 
+const reads = new RequestPool();
+let readGeneration = 0;
+
 async function apiFetch<T>(path: string, init: RequestInit = {}, skipAuth = false): Promise<T> {
+  const method = (init.method ?? "GET").toUpperCase();
+  if (method !== "GET") {
+    readGeneration++;
+    try {
+      return await performApiFetch<T>(path, init, skipAuth);
+    } finally {
+      readGeneration++;
+    }
+  }
+  if (init.signal || init.headers || init.body) return performApiFetch<T>(path, init, skipAuth);
+  const key = JSON.stringify([path, skipAuth ? null : getAccessToken(), readGeneration]);
+  const result = await reads.run(key, () => performApiFetch<T>(path, init, skipAuth));
+  return structuredClone(result);
+}
+
+async function performApiFetch<T>(
+  path: string,
+  init: RequestInit = {},
+  skipAuth = false,
+): Promise<T> {
   const headers = new Headers(init.headers);
 
   if (!skipAuth) {
@@ -129,7 +159,11 @@ async function apiFetch<T>(path: string, init: RequestInit = {}, skipAuth = fals
 
   // Access token expired → swap the refresh token for a new pair and retry once
   if (res.status === 401 && !skipAuth && getRefreshToken()) {
-    if (await refreshAccessToken()) {
+    const newerToken = getAccessToken();
+    if (
+      (newerToken && headers.get("Authorization") !== `Bearer ${newerToken}`) ||
+      (await refreshAccessToken())
+    ) {
       headers.set("Authorization", `Bearer ${getAccessToken() ?? ""}`);
       res = await fetch(`${BASE}${path}`, { ...init, headers });
     }
@@ -159,6 +193,10 @@ export interface AuthUser {
   email: string;
   name: string;
   role: "STUDENT" | "TEACHER" | "ADMIN";
+}
+
+export interface BotUrlResponse {
+  url: string;
 }
 
 export interface LoginResponse {
@@ -193,10 +231,6 @@ export interface ApiPaper {
   uploadedAt: string;
 }
 
-export interface BotUrlResponse {
-  url: string;
-}
-
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 export async function apiLogin(email: string, password: string): Promise<LoginResponse> {
@@ -217,19 +251,27 @@ export async function apiLogout(refreshToken: string): Promise<void> {
 // ── Subjects ──────────────────────────────────────────────────────────────────
 
 export interface SubjectFilters {
+  branchId?: string | undefined;
   branch?: string | undefined;
   semester?: number | undefined;
   search?: string | undefined;
 }
 
-export async function fetchSubjects(filters: SubjectFilters): Promise<ApiSubject[]> {
+export async function fetchSubjects(
+  filters: SubjectFilters,
+  signal?: AbortSignal,
+): Promise<ApiSubject[]> {
   const params = new URLSearchParams();
+  if (filters.branchId) params.set("branchId", filters.branchId);
   if (filters.branch) params.set("branch", filters.branch);
   if (filters.semester) params.set("semester", String(filters.semester));
   if (filters.search) params.set("search", filters.search);
 
   const qs = params.toString() ? `?${params.toString()}` : "";
-  const data = await apiFetch<{ subjects: ApiSubject[] }>(`/api/subjects${qs}`);
+  const data = await apiFetch<{ subjects: ApiSubject[] }>(
+    `/api/subjects${qs}`,
+    signal ? { signal } : {},
+  );
   return data.subjects;
 }
 
@@ -339,7 +381,7 @@ export async function fetchPapersByTopic(
   return apiFetch<PapersByTopicResponse>(`/api/resources/by-topic?${params.toString()}`);
 }
 
-// ── Bot URL ───────────────────────────────────────────────────────────────────
+// ── External paper-chat handoff ────────────────────────────────────────────────
 
 export async function fetchBotUrl(resourceId?: string): Promise<string> {
   const qs = resourceId ? `?resourceId=${encodeURIComponent(resourceId)}` : "";
@@ -786,11 +828,13 @@ export async function fetchSyllabi(filters?: {
   branchId?: string | undefined;
   semester?: number | undefined;
   scheme?: string | undefined;
+  subjectId?: string | undefined;
 }): Promise<ApiSyllabus[]> {
   const params = new URLSearchParams();
   if (filters?.branchId) params.set("branchId", filters.branchId);
   if (filters?.semester) params.set("semester", String(filters.semester));
   if (filters?.scheme) params.set("scheme", filters.scheme);
+  if (filters?.subjectId) params.set("subjectId", filters.subjectId);
   const qs = params.toString() ? `?${params.toString()}` : "";
   const data = await apiFetch<{ syllabi: ApiSyllabus[] }>(`/api/syllabus${qs}`);
   return data.syllabi;
@@ -966,11 +1010,18 @@ export async function generateStudyPlanSmart(body: {
   exams?: ApiExtractedExam[] | undefined;
   /** SyllabusItem IDs to skip — all other units are included. */
   excludedUnitIds?: string[] | undefined;
-}): Promise<{ plan: ApiStudyPlan; subjectsUsed: number; examsMatched: number; warnings: string[] }> {
-  return apiFetch<{ plan: ApiStudyPlan; subjectsUsed: number; examsMatched: number; warnings: string[] }>(
-    "/api/study-plans/generate",
-    { method: "POST", body: JSON.stringify(body) },
-  );
+}): Promise<{
+  plan: ApiStudyPlan;
+  subjectsUsed: number;
+  examsMatched: number;
+  warnings: string[];
+}> {
+  return apiFetch<{
+    plan: ApiStudyPlan;
+    subjectsUsed: number;
+    examsMatched: number;
+    warnings: string[];
+  }>("/api/study-plans/generate", { method: "POST", body: JSON.stringify(body) });
 }
 
 // ── Group analytics ────────────────────────────────────────────────────────────
@@ -1002,7 +1053,13 @@ export interface ApiGroupPlanOptions {
     id: string;
     name: string;
     code: string;
-    units: { id: string; unitNumber: number; title: string; topics: string[]; hours: number | null }[];
+    units: {
+      id: string;
+      unitNumber: number;
+      title: string;
+      topics: string[];
+      hours: number | null;
+    }[];
   }[];
 }
 
@@ -1041,12 +1098,16 @@ export interface ApiGroupMemberProgress {
 }
 
 export async function fetchGroupProgress(groupId: string): Promise<ApiGroupMemberProgress[]> {
-  const res = await apiFetch<{ progress: ApiGroupMemberProgress[] }>(`/api/groups/${groupId}/progress`);
+  const res = await apiFetch<{ progress: ApiGroupMemberProgress[] }>(
+    `/api/groups/${groupId}/progress`,
+  );
   return res.progress;
 }
 
 export async function deleteGroupPlan(groupId: string): Promise<number> {
-  const res = await apiFetch<{ deleted: number }>(`/api/groups/${groupId}/plan`, { method: "DELETE" });
+  const res = await apiFetch<{ deleted: number }>(`/api/groups/${groupId}/plan`, {
+    method: "DELETE",
+  });
   return res.deleted;
 }
 
@@ -1054,7 +1115,10 @@ export async function removeGroupMember(groupId: string, userId: string): Promis
   await apiFetch<void>(`/api/groups/${groupId}/members/${userId}`, { method: "DELETE" });
 }
 
-export async function transferGroupOwnership(groupId: string, userId: string): Promise<ApiStudyGroup> {
+export async function transferGroupOwnership(
+  groupId: string,
+  userId: string,
+): Promise<ApiStudyGroup> {
   const res = await apiFetch<{ group: ApiStudyGroup }>(`/api/groups/${groupId}/transfer`, {
     method: "POST",
     body: JSON.stringify({ userId }),
@@ -1142,15 +1206,19 @@ export interface ApiPyqSearchResponse {
   results: ApiPyqTopicResult[];
 }
 
-export async function searchPyqQuestions(body: {
-  topics: string[];
-  subjectId?: string | undefined;
-  context?: string | undefined; 
-  perTopic?: number | undefined;
-}): Promise<ApiPyqSearchResponse> {
+export async function searchPyqQuestions(
+  body: {
+    topics: string[];
+    subjectId?: string | undefined;
+    context?: string | undefined;
+    perTopic?: number | undefined;
+  },
+  signal?: AbortSignal,
+): Promise<ApiPyqSearchResponse> {
   return apiFetch<ApiPyqSearchResponse>("/api/questions/search", {
     method: "POST",
     body: JSON.stringify(body),
+    ...(signal ? { signal } : {}),
   });
 }
 
@@ -1226,25 +1294,7 @@ export async function streamAgentChat(
     throw new ApiError(res.status, msg);
   }
 
-  const reader = res.body!.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        try {
-          const event = JSON.parse(line.slice(6)) as AgentEvent;
-          onEvent(event);
-        } catch {
-          // ignore malformed events
-        }
-      }
-    }
-  }
+  if (!res.body)
+    throw new ApiError(502, "The AI response stream is unavailable. Please try again.");
+  await readJsonEventStream<AgentEvent>(res.body, onEvent);
 }

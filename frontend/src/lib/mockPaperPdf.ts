@@ -11,11 +11,11 @@ const CONTENT_W = PAGE_W - MARGIN * 2;
 
 // Helvetica glyph widths (1/1000 em) for ASCII 32..126
 const W = [
-  278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556, 556, 556, 556,
-  556, 556, 556, 556, 278, 278, 584, 584, 584, 556, 1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667,
-  556, 833, 722, 778, 667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556, 333, 556,
-  556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556, 556, 556, 333, 500, 278, 556, 500, 722,
-  500, 500, 500, 334, 260, 334, 584,
+  278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556,
+  556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584, 556, 1015, 667, 667, 722, 722, 667,
+  611, 778, 722, 278, 500, 667, 556, 833, 722, 778, 667, 778, 722, 667, 611, 722, 667, 944, 667,
+  667, 611, 278, 278, 278, 469, 556, 333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500,
+  222, 833, 556, 556, 556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584,
 ];
 
 const REPLACEMENTS: [RegExp, string][] = [
@@ -103,11 +103,15 @@ class Doc {
   }
 
   text(s: string, x: number, size: number, bold = false) {
-    this.ops.push(`BT /${bold ? "F2" : "F1"} ${size} Tf ${x.toFixed(2)} ${this.y.toFixed(2)} Td (${esc(clean(s))}) Tj ET`);
+    this.ops.push(
+      `BT /${bold ? "F2" : "F1"} ${size} Tf ${x.toFixed(2)} ${this.y.toFixed(2)} Td (${esc(clean(s))}) Tj ET`,
+    );
   }
 
   rule(gray = 0.6) {
-    this.ops.push(`${gray} G 0.6 w ${MARGIN} ${this.y.toFixed(2)} m ${PAGE_W - MARGIN} ${this.y.toFixed(2)} l S 0 G`);
+    this.ops.push(
+      `${gray} G 0.6 w ${MARGIN} ${this.y.toFixed(2)} m ${PAGE_W - MARGIN} ${this.y.toFixed(2)} l S 0 G`,
+    );
   }
 
   finish(): Blob {
@@ -119,8 +123,12 @@ class Doc {
     };
     const catalog = add("");
     const pagesObj = add("");
-    const f1 = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
-    const f2 = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>");
+    const f1 = add(
+      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+    );
+    const f2 = add(
+      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
+    );
     const kids: number[] = [];
     this.pages.forEach((content, i) => {
       const footer = `BT /F1 8 Tf ${PAGE_W / 2 - 20} 30 Td (Page ${i + 1} of ${this.pages.length}) Tj ET`;
@@ -133,7 +141,8 @@ class Doc {
       );
     });
     objs[catalog - 1] = `<< /Type /Catalog /Pages ${pagesObj} 0 R >>`;
-    objs[pagesObj - 1] = `<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(" ")}] /Count ${kids.length} >>`;
+    objs[pagesObj - 1] =
+      `<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(" ")}] /Count ${kids.length} >>`;
 
     let out = "%PDF-1.4\n";
     const offsets: number[] = [];
@@ -229,7 +238,11 @@ export function buildMockPaperPdf(paper: ApiMockPaper, opts: { includeMap?: bool
     doc.text("Syllabus coverage", MARGIN, 10, true);
     doc.y -= 14;
     for (const c of paper.coverage) {
-      for (const [i, l] of wrap(`${c.unit}: ${c.questions} question(s), ${c.marks} marks`, 9.5, CONTENT_W - 10).entries()) {
+      for (const [i, l] of wrap(
+        `${c.unit}: ${c.questions} question(s), ${c.marks} marks`,
+        9.5,
+        CONTENT_W - 10,
+      ).entries()) {
         doc.ensure(13);
         doc.text(l, MARGIN + (i === 0 ? 0 : 10), 9.5);
         doc.y -= 13;
@@ -247,7 +260,11 @@ export function buildMockPaperPdf(paper: ApiMockPaper, opts: { includeMap?: bool
             : q.origin === "variant"
               ? `Variant of ${q.source ?? "a past question"}`
               : `Past paper: ${q.source ?? "unknown"}`;
-        for (const [i, l] of wrap(`Q${q.no} [${ORIGIN_LABEL[q.origin]}] ${q.topic} - ${src}`, 9, CONTENT_W - 10).entries()) {
+        for (const [i, l] of wrap(
+          `Q${q.no} [${ORIGIN_LABEL[q.origin]}] ${q.topic} - ${src}`,
+          9,
+          CONTENT_W - 10,
+        ).entries()) {
           doc.ensure(12);
           doc.text(l, MARGIN + (i === 0 ? 0 : 10), 9);
           doc.y -= 12;

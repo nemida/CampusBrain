@@ -6,6 +6,8 @@ import morgan from "morgan";
 import rateLimit from "express-rate-limit";
 
 import { env } from "./lib/env.js";
+import { allowedOrigins } from "./lib/cors.js";
+import { prisma } from "./lib/prisma.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import authRouter from "./routes/auth.js";
 import branchesRouter from "./routes/branches.js";
@@ -36,6 +38,11 @@ process.on("unhandledRejection", (reason) => {
   }
 });
 const app = express();
+const origins = allowedOrigins(
+  env.FRONTEND_URL,
+  env.CORS_ORIGINS,
+  env.NODE_ENV === "development",
+);
 
 // Behind a reverse proxy (Render, Railway, Fly…) the client IP comes from X-Forwarded-For;
 // without this every user shares the proxy's IP and hits the same rate-limit bucket.
@@ -48,12 +55,7 @@ app.use(
     origin: (origin, callback) => {
       // Allow requests with no origin (e.g. mobile apps, curl)
       if (!origin) return callback(null, true);
-      // Allow the configured frontend URL and any Vercel preview deployments
-      const allowed =
-        origin === env.FRONTEND_URL.replace(/\/+$/, "") ||
-        /\.vercel\.app$/.test(origin) ||
-        origin === "http://localhost:8080" ||
-        origin === "http://localhost:3000";
+      const allowed = origins.has(origin);
       if (allowed) return callback(null, true);
       return callback(new Error(`CORS: origin ${origin} not allowed`));
     },
@@ -80,6 +82,7 @@ const globalLimiter = rateLimit({
   max: 200,
   standardHeaders: true,
   legacyHeaders: false,
+  message: { error: "Too many requests, please try again later." },
 });
 
 app.use(globalLimiter);
@@ -113,9 +116,27 @@ app.use((_req, res) => {
 app.use(errorHandler);
 
 // ── Start ────────────────────────────────────────────────────────────────────
-app.listen(env.PORT, () => {
+const server = app.listen(env.PORT, () => {
   console.log(`🚀  CampusBrain API running on http://localhost:${env.PORT}`);
   console.log(`    ENV: ${env.NODE_ENV}`);
 });
+
+// Stop accepting new traffic, drain requests, then close database connections.
+let shuttingDown = false;
+function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[Process] ${signal}: draining connections`);
+  const deadline = setTimeout(() => process.exit(1), 10_000);
+  deadline.unref();
+  server.close(() => {
+    void prisma.$disconnect().then(
+      () => process.exit(0),
+      () => process.exit(1),
+    );
+  });
+}
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
 
 export default app;

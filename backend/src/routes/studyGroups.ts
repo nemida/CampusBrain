@@ -22,6 +22,7 @@ import { z } from "zod";
 import rateLimit from "express-rate-limit";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/requireAuth.js";
+import { lockRow } from "../lib/rowLocks.js";
 import { scoreTopicsByPYQFrequency } from "../lib/retriever.js";
 import { aggregateGroupWeakTopics } from "../lib/topics.js";
 import {
@@ -66,10 +67,14 @@ const joinLimiter = rateLimit({
   standardHeaders: "draft-7",
   legacyHeaders: false,
   keyGenerator: (req) => req.user?.id ?? "anonymous",
-  message: { error: "Too many join attempts. Please try again in a few minutes." },
+  message: {
+    error: "Too many join attempts. Please try again in a few minutes.",
+  },
 });
 
-const isoDate = z.string().refine((s) => !Number.isNaN(new Date(s).getTime()), "invalid date");
+const isoDate = z
+  .string()
+  .refine((s) => !Number.isNaN(new Date(s).getTime()), "invalid date");
 
 const memberInclude = {
   memberships: {
@@ -100,7 +105,10 @@ function shapeGroup(
     branch: string | null;
     semester: number | null;
     ownerId: string;
-    memberships: { role: GroupRole; user: { id: string; name: string; email: string } }[];
+    memberships: {
+      role: GroupRole;
+      user: { id: string; name: string; email: string };
+    }[];
   },
   viewerId: string,
 ) {
@@ -123,8 +131,12 @@ function shapeGroup(
   };
 }
 
-async function getRole(groupId: string, userId: string): Promise<GroupRole | null> {
-  const m = await prisma.groupMembership.findUnique({
+async function getRole(
+  groupId: string,
+  userId: string,
+  db: Prisma.TransactionClient = prisma,
+): Promise<GroupRole | null> {
+  const m = await db.groupMembership.findUnique({
     where: { groupId_userId: { groupId, userId } },
     select: { role: true },
   });
@@ -151,11 +163,16 @@ async function authorize(
 }
 
 async function loadGroup(groupId: string) {
-  return prisma.studyGroup.findUnique({ where: { id: groupId }, include: memberInclude });
+  return prisma.studyGroup.findUnique({
+    where: { id: groupId },
+    include: memberInclude,
+  });
 }
 
 async function hasActivePlan(groupId: string): Promise<boolean> {
-  return (await prisma.studyPlan.count({ where: { groupId, status: "ACTIVE" } })) > 0;
+  return (
+    (await prisma.studyPlan.count({ where: { groupId, status: "ACTIVE" } })) > 0
+  );
 }
 
 /**
@@ -176,6 +193,27 @@ async function createPlanForMembers(
 ) {
   const requesterPlanId = await prisma.$transaction(
     async (tx) => {
+      await lockRow(tx, "StudyGroup", opts.groupId);
+      if ((await getRole(opts.groupId, requesterId, tx)) !== GroupRole.OWNER)
+        throw Object.assign(
+          new Error("Only the group owner can create a shared plan"),
+          { statusCode: 403 },
+        );
+      if (
+        await tx.studyPlan.count({
+          where: { groupId: opts.groupId, status: "ACTIVE" },
+        })
+      )
+        throw Object.assign(
+          new Error("This group already has an active plan"),
+          { statusCode: 409 },
+        );
+      memberIds = (
+        await tx.groupMembership.findMany({
+          where: { groupId: opts.groupId },
+          select: { userId: true },
+        })
+      ).map((member) => member.userId);
       const created = await tx.studyPlan.createManyAndReturn({
         data: memberIds.map((userId) => ({
           userId,
@@ -183,7 +221,9 @@ async function createPlanForMembers(
           title: opts.title,
           examDate: opts.examDate,
           totalDays: opts.totalDays,
-          ...(opts.config ? { config: opts.config as unknown as Prisma.InputJsonValue } : {}),
+          ...(opts.config
+            ? { config: opts.config as unknown as Prisma.InputJsonValue }
+            : {}),
         })),
         select: { id: true, userId: true },
       });
@@ -205,7 +245,10 @@ async function createPlanForMembers(
     { timeout: 30_000, maxWait: 10_000 },
   );
   if (!requesterPlanId) return null;
-  return prisma.studyPlan.findUnique({ where: { id: requesterPlanId }, include: planInclude });
+  return prisma.studyPlan.findUnique({
+    where: { id: requesterPlanId },
+    include: planInclude,
+  });
 }
 
 // ── POST /api/groups ─────────────────────────────────────────────────────────
@@ -217,272 +260,378 @@ const createGroupSchema = z.object({
   semester: z.number().int().min(1).max(8).optional(),
 });
 
-router.post("/", requireAuth(), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const body = createGroupSchema.parse(req.body);
-    const userId = req.user!.id;
+router.post(
+  "/",
+  requireAuth(),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const body = createGroupSchema.parse(req.body);
+      const userId = req.user!.id;
 
-    // Retry on a (rare) invite-code collision instead of check-then-insert, which can race
-    for (let attempt = 0; attempt < 5; attempt++) {
-      try {
-        const group = await prisma.studyGroup.create({
-          data: {
-            name: body.name,
-            description: body.description,
-            branch: body.branch,
-            semester: body.semester,
-            ownerId: userId,
-            inviteCode: makeInviteCode(),
-            memberships: { create: { userId, role: GroupRole.OWNER } },
-          },
-          include: memberInclude,
-        });
-        res.status(201).json({ group: shapeGroup(group, userId) });
-        return;
-      } catch (err) {
-        if (!isUniqueViolation(err)) throw err;
+      // Retry on a (rare) invite-code collision instead of check-then-insert, which can race
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          const group = await prisma.studyGroup.create({
+            data: {
+              name: body.name,
+              description: body.description,
+              branch: body.branch,
+              semester: body.semester,
+              ownerId: userId,
+              inviteCode: makeInviteCode(),
+              memberships: { create: { userId, role: GroupRole.OWNER } },
+            },
+            include: memberInclude,
+          });
+          res.status(201).json({ group: shapeGroup(group, userId) });
+          return;
+        } catch (err) {
+          if (!isUniqueViolation(err)) throw err;
+        }
       }
+      res
+        .status(503)
+        .json({
+          error: "Could not generate an invite code. Please try again.",
+        });
+    } catch (err) {
+      next(err);
     }
-    res.status(503).json({ error: "Could not generate an invite code. Please try again." });
-  } catch (err) {
-    next(err);
-  }
-});
+  },
+);
 
 // ── GET /api/groups ──────────────────────────────────────────────────────────
 
-router.get("/", requireAuth(), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const userId = req.user!.id;
-    const memberships = await prisma.groupMembership.findMany({
-      where: { userId },
-      include: { group: { include: memberInclude } },
-      orderBy: { joinedAt: "desc" },
-    });
-    res.json({ groups: memberships.map((m) => shapeGroup(m.group, userId)) });
-  } catch (err) {
-    next(err);
-  }
-});
+router.get(
+  "/",
+  requireAuth(),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.id;
+      const memberships = await prisma.groupMembership.findMany({
+        where: { userId },
+        include: { group: { include: memberInclude } },
+        orderBy: { joinedAt: "desc" },
+      });
+      res.json({ groups: memberships.map((m) => shapeGroup(m.group, userId)) });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // ── POST /api/groups/join ─────────────────────────────────────────────────────
 // MUST be before /:id
 
 const joinSchema = z.object({ inviteCode: z.string().trim().min(1).max(20) });
 
-router.post("/join", requireAuth(), joinLimiter, async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { inviteCode } = joinSchema.parse(req.body);
-    const userId = req.user!.id;
-
-    const group = await prisma.studyGroup.findUnique({
-      where: { inviteCode: inviteCode.toUpperCase() },
-      select: { id: true },
-    });
-    if (!group) {
-      res.status(404).json({ error: "Invalid invite code — double-check and try again." });
-      return;
-    }
-
-    if ((await prisma.groupMembership.count({ where: { groupId: group.id } })) >= MAX_MEMBERS) {
-      res.status(409).json({ error: `This group is full (${MAX_MEMBERS} members).` });
-      return;
-    }
-
+router.post(
+  "/join",
+  requireAuth(),
+  joinLimiter,
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
-      await prisma.groupMembership.create({
-        data: { groupId: group.id, userId, role: GroupRole.MEMBER },
+      const { inviteCode } = joinSchema.parse(req.body);
+      const userId = req.user!.id;
+
+      const outcome = await prisma.$transaction(async (tx) => {
+        const rows = await tx.$queryRaw<{ id: string }[]>(
+          Prisma.sql`SELECT "id" FROM "StudyGroup" WHERE "inviteCode" = ${inviteCode.toUpperCase()} FOR UPDATE`,
+        );
+        const group = rows[0];
+        if (!group)
+          return {
+            status: 404 as const,
+            error: "Invalid invite code — double-check and try again.",
+          };
+        const existing = await tx.groupMembership.findUnique({
+          where: { groupId_userId: { groupId: group.id, userId } },
+        });
+        if (existing)
+          return {
+            status: 409 as const,
+            error: "You're already in this group.",
+          };
+        if (
+          (await tx.groupMembership.count({ where: { groupId: group.id } })) >=
+          MAX_MEMBERS
+        )
+          return {
+            status: 409 as const,
+            error: `This group is full (${MAX_MEMBERS} members).`,
+          };
+        await tx.groupMembership.create({
+          data: { groupId: group.id, userId, role: GroupRole.MEMBER },
+        });
+        return { status: 201 as const, groupId: group.id };
       });
-    } catch (err) {
-      if (isUniqueViolation(err)) {
-        res.status(409).json({ error: "You're already in this group." });
+      if (outcome.status !== 201) {
+        res.status(outcome.status).json({ error: outcome.error });
         return;
       }
-      throw err;
-    }
+      const group = { id: outcome.groupId };
 
-    const full = await loadGroup(group.id);
-    res.status(201).json({ group: shapeGroup(full!, userId) });
-  } catch (err) {
-    next(err);
-  }
-});
+      const full = await loadGroup(group.id);
+      res.status(201).json({ group: shapeGroup(full!, userId) });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // ── GET /api/groups/:id ───────────────────────────────────────────────────────
 
-router.get("/:id", requireAuth(), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const userId = req.user!.id;
-    const group = await loadGroup(String(req.params["id"]));
-    if (!group) {
-      res.status(404).json({ error: "Group not found" });
-      return;
+router.get(
+  "/:id",
+  requireAuth(),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.id;
+      const group = await loadGroup(String(req.params["id"]));
+      if (!group) {
+        res.status(404).json({ error: "Group not found" });
+        return;
+      }
+      if (!group.memberships.some((m) => m.user.id === userId)) {
+        res.status(403).json({ error: "You are not a member of this group" });
+        return;
+      }
+
+      const memberIds = group.memberships.map((m) => m.user.id);
+      const since = new Date(Date.now() - QUIZ_WINDOW_DAYS * DAY_MS);
+
+      // Independent queries run together; quiz history is windowed and capped
+      const [sessions, subjectRows] = await Promise.all([
+        prisma.mCQSession.findMany({
+          where: {
+            userId: { in: memberIds },
+            topic: { not: null },
+            createdAt: { gte: since },
+            questions: { some: { chosenIndex: { not: null } } },
+          },
+          select: { userId: true, topic: true, score: true },
+          orderBy: { createdAt: "desc" },
+          take: MAX_QUIZ_SESSIONS,
+        }),
+        prisma.userProfileSubject.findMany({
+          where: { profile: { userId: { in: memberIds } } },
+          select: {
+            profile: { select: { userId: true } },
+            subject: { select: { id: true, name: true, code: true } },
+          },
+        }),
+      ]);
+
+      const weakTopics = aggregateGroupWeakTopics(sessions);
+
+      const byMember = new Map<
+        string,
+        { id: string; name: string; code: string }[]
+      >();
+      const bySubject = new Map<
+        string,
+        { id: string; name: string; code: string; memberCount: number }
+      >();
+      for (const row of subjectRows) {
+        const list = byMember.get(row.profile.userId) ?? [];
+        list.push(row.subject);
+        byMember.set(row.profile.userId, list);
+        const s = bySubject.get(row.subject.id) ?? {
+          ...row.subject,
+          memberCount: 0,
+        };
+        s.memberCount++;
+        bySubject.set(row.subject.id, s);
+      }
+
+      res.json({
+        group: shapeGroup(group, userId),
+        weakTopics, // { topic, avgScore, memberCount, strugglingCount }
+        memberSubjects: memberIds.map((id) => ({
+          userId: id,
+          subjects: byMember.get(id) ?? [],
+        })),
+        sharedSubjects: [...bySubject.values()]
+          .sort((a, b) => b.memberCount - a.memberCount)
+          .slice(0, 10),
+      });
+    } catch (err) {
+      next(err);
     }
-    if (!group.memberships.some((m) => m.user.id === userId)) {
-      res.status(403).json({ error: "You are not a member of this group" });
-      return;
-    }
-
-    const memberIds = group.memberships.map((m) => m.user.id);
-    const since = new Date(Date.now() - QUIZ_WINDOW_DAYS * DAY_MS);
-
-    // Independent queries run together; quiz history is windowed and capped
-    const [sessions, subjectRows] = await Promise.all([
-      prisma.mCQSession.findMany({
-        where: {
-          userId: { in: memberIds },
-          topic: { not: null },
-          createdAt: { gte: since },
-          questions: { some: { chosenIndex: { not: null } } },
-        },
-        select: { userId: true, topic: true, score: true },
-        orderBy: { createdAt: "desc" },
-        take: MAX_QUIZ_SESSIONS,
-      }),
-      prisma.userProfileSubject.findMany({
-        where: { profile: { userId: { in: memberIds } } },
-        select: {
-          profile: { select: { userId: true } },
-          subject: { select: { id: true, name: true, code: true } },
-        },
-      }),
-    ]);
-
-    const weakTopics = aggregateGroupWeakTopics(sessions);
-
-    const byMember = new Map<string, { id: string; name: string; code: string }[]>();
-    const bySubject = new Map<string, { id: string; name: string; code: string; memberCount: number }>();
-    for (const row of subjectRows) {
-      const list = byMember.get(row.profile.userId) ?? [];
-      list.push(row.subject);
-      byMember.set(row.profile.userId, list);
-      const s = bySubject.get(row.subject.id) ?? { ...row.subject, memberCount: 0 };
-      s.memberCount++;
-      bySubject.set(row.subject.id, s);
-    }
-
-    res.json({
-      group: shapeGroup(group, userId),
-      weakTopics, // { topic, avgScore, memberCount, strugglingCount }
-      memberSubjects: memberIds.map((id) => ({ userId: id, subjects: byMember.get(id) ?? [] })),
-      sharedSubjects: [...bySubject.values()].sort((a, b) => b.memberCount - a.memberCount).slice(0, 10),
-    });
-  } catch (err) {
-    next(err);
-  }
-});
+  },
+);
 
 // ── PATCH /api/groups/:id ─────────────────────────────────────────────────────
 
-const updateGroupSchema = createGroupSchema.partial().refine((b) => Object.keys(b).length > 0, {
-  message: "Nothing to update",
-});
+const updateGroupSchema = createGroupSchema
+  .partial()
+  .refine((b) => Object.keys(b).length > 0, {
+    message: "Nothing to update",
+  });
 
-router.patch("/:id", requireAuth(), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const userId = req.user!.id;
-    const groupId = String(req.params["id"]);
-    if (!(await authorize(res, groupId, userId, "owner"))) return;
+router.patch(
+  "/:id",
+  requireAuth(),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.id;
+      const groupId = String(req.params["id"]);
+      if (!(await authorize(res, groupId, userId, "owner"))) return;
 
-    const body = updateGroupSchema.parse(req.body);
-    const data: Prisma.StudyGroupUpdateInput = {};
-    if (body.name !== undefined) data.name = body.name;
-    if (body.description !== undefined) data.description = body.description;
-    if (body.branch !== undefined) data.branch = body.branch;
-    if (body.semester !== undefined) data.semester = body.semester;
+      const body = updateGroupSchema.parse(req.body);
+      const data: Prisma.StudyGroupUpdateInput = {};
+      if (body.name !== undefined) data.name = body.name;
+      if (body.description !== undefined) data.description = body.description;
+      if (body.branch !== undefined) data.branch = body.branch;
+      if (body.semester !== undefined) data.semester = body.semester;
 
-    await prisma.studyGroup.update({ where: { id: groupId }, data });
-    res.json({ group: shapeGroup((await loadGroup(groupId))!, userId) });
-  } catch (err) {
-    next(err);
-  }
-});
+      await prisma.studyGroup.update({
+        where: { id: groupId, ownerId: userId },
+        data,
+      });
+      res.json({ group: shapeGroup((await loadGroup(groupId))!, userId) });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // ── DELETE /api/groups/:id ────────────────────────────────────────────────────
 
-router.delete("/:id", requireAuth(), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const groupId = String(req.params["id"]);
-    if (!(await authorize(res, groupId, req.user!.id, "owner"))) return;
-    // Memberships cascade; members keep their own plan copies as personal plans (groupId → null)
-    await prisma.studyGroup.delete({ where: { id: groupId } });
-    res.status(204).send();
-  } catch (err) {
-    next(err);
-  }
-});
+router.delete(
+  "/:id",
+  requireAuth(),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const groupId = String(req.params["id"]);
+      if (!(await authorize(res, groupId, req.user!.id, "owner"))) return;
+      // Memberships cascade; members keep their own plan copies as personal plans (groupId → null)
+      const deleted = await prisma.studyGroup.deleteMany({
+        where: { id: groupId, ownerId: req.user!.id },
+      });
+      if (!deleted.count) {
+        res
+          .status(403)
+          .json({ error: "Only the current owner can delete this group" });
+        return;
+      }
+      res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // ── DELETE /api/groups/:id/leave ──────────────────────────────────────────────
 
-router.delete("/:id/leave", requireAuth(), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const userId = req.user!.id;
-    const groupId = String(req.params["id"]);
+router.delete(
+  "/:id/leave",
+  requireAuth(),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.id;
+      const groupId = String(req.params["id"]);
 
-    const role = await getRole(groupId, userId);
-    if (!role) {
-      res.status(404).json({ error: "You are not a member of this group" });
-      return;
-    }
+      const outcome = await prisma.$transaction(async (tx) => {
+        await lockRow(tx, "StudyGroup", groupId);
+        const role = await getRole(groupId, userId, tx);
+        if (!role) {
+          return {
+            status: 404 as const,
+            error: "You are not a member of this group",
+          };
+        }
 
-    if (role === GroupRole.OWNER) {
-      const memberCount = await prisma.groupMembership.count({ where: { groupId } });
-      if (memberCount > 1) {
-        res.status(400).json({
-          error: "You're the owner. Transfer ownership to another member first, or delete the group.",
+        if (role === GroupRole.OWNER) {
+          const memberCount = await tx.groupMembership.count({
+            where: { groupId },
+          });
+          if (memberCount > 1) {
+            return {
+              status: 400 as const,
+              error:
+                "You're the owner. Transfer ownership to another member first, or delete the group.",
+            };
+          }
+          await tx.studyGroup.delete({ where: { id: groupId } });
+          return { status: 204 as const };
+        }
+
+        await tx.groupMembership.delete({
+          where: { groupId_userId: { groupId, userId } },
         });
+        // keep their copy of the plan, just detach it from the group
+        await tx.studyPlan.updateMany({
+          where: { groupId, userId },
+          data: { groupId: null },
+        });
+        return { status: 204 as const };
+      });
+      if (outcome.status !== 204) {
+        res.status(outcome.status).json({ error: outcome.error });
         return;
       }
-      await prisma.studyGroup.delete({ where: { id: groupId } });
       res.status(204).send();
-      return;
+    } catch (err) {
+      next(err);
     }
-
-    await prisma.$transaction([
-      prisma.groupMembership.delete({ where: { groupId_userId: { groupId, userId } } }),
-      // keep their copy of the plan, just detach it from the group
-      prisma.studyPlan.updateMany({ where: { groupId, userId }, data: { groupId: null } }),
-    ]);
-    res.status(204).send();
-  } catch (err) {
-    next(err);
-  }
-});
+  },
+);
 
 // ── POST /api/groups/:id/transfer ─────────────────────────────────────────────
 
-router.post("/:id/transfer", requireAuth(), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const userId = req.user!.id;
-    const groupId = String(req.params["id"]);
-    if (!(await authorize(res, groupId, userId, "owner"))) return;
+router.post(
+  "/:id/transfer",
+  requireAuth(),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.id;
+      const groupId = String(req.params["id"]);
+      if (!(await authorize(res, groupId, userId, "owner"))) return;
 
-    const { userId: newOwnerId } = z.object({ userId: z.string().min(1) }).parse(req.body);
-    if (newOwnerId === userId) {
-      res.status(400).json({ error: "You already own this group." });
-      return;
+      const { userId: newOwnerId } = z
+        .object({ userId: z.string().min(1) })
+        .parse(req.body);
+      if (newOwnerId === userId) {
+        res.status(400).json({ error: "You already own this group." });
+        return;
+      }
+      const outcome = await prisma.$transaction(async (tx) => {
+        await lockRow(tx, "StudyGroup", groupId);
+        if ((await getRole(groupId, userId, tx)) !== GroupRole.OWNER)
+          return {
+            status: 403 as const,
+            error: "Only the current owner can transfer ownership",
+          };
+        if (!(await getRole(groupId, newOwnerId, tx)))
+          return {
+            status: 404 as const,
+            error: "That person isn't a member of this group.",
+          };
+        await tx.groupMembership.update({
+          where: { groupId_userId: { groupId, userId: newOwnerId } },
+          data: { role: GroupRole.OWNER },
+        });
+        await tx.groupMembership.update({
+          where: { groupId_userId: { groupId, userId } },
+          data: { role: GroupRole.MEMBER },
+        });
+        await tx.studyGroup.update({
+          where: { id: groupId },
+          data: { ownerId: newOwnerId },
+        });
+        return { status: 200 as const };
+      });
+      if (outcome.status !== 200) {
+        res.status(outcome.status).json({ error: outcome.error });
+        return;
+      }
+      res.json({ group: shapeGroup((await loadGroup(groupId))!, userId) });
+    } catch (err) {
+      next(err);
     }
-    if (!(await getRole(groupId, newOwnerId))) {
-      res.status(404).json({ error: "That person isn't a member of this group." });
-      return;
-    }
-
-    await prisma.$transaction([
-      prisma.groupMembership.update({
-        where: { groupId_userId: { groupId, userId: newOwnerId } },
-        data: { role: GroupRole.OWNER },
-      }),
-      prisma.groupMembership.update({
-        where: { groupId_userId: { groupId, userId } },
-        data: { role: GroupRole.MEMBER },
-      }),
-      prisma.studyGroup.update({ where: { id: groupId }, data: { ownerId: newOwnerId } }),
-    ]);
-    res.json({ group: shapeGroup((await loadGroup(groupId))!, userId) });
-  } catch (err) {
-    next(err);
-  }
-});
+  },
+);
 
 // ── DELETE /api/groups/:id/members/:userId ────────────────────────────────────
 
@@ -497,16 +646,32 @@ router.delete(
       if (!(await authorize(res, groupId, userId, "owner"))) return;
 
       if (targetId === userId) {
-        res.status(400).json({ error: "Use 'leave' to leave the group yourself." });
+        res
+          .status(400)
+          .json({ error: "Use 'leave' to leave the group yourself." });
         return;
       }
 
-      const [removed] = await prisma.$transaction([
-        prisma.groupMembership.deleteMany({ where: { groupId, userId: targetId } }),
-        prisma.studyPlan.updateMany({ where: { groupId, userId: targetId }, data: { groupId: null } }),
-      ]);
+      const removed = await prisma.$transaction(async (tx) => {
+        await lockRow(tx, "StudyGroup", groupId);
+        if ((await getRole(groupId, userId, tx)) !== GroupRole.OWNER)
+          throw Object.assign(
+            new Error("Only the current owner can remove members"),
+            { statusCode: 403 },
+          );
+        const removed = await tx.groupMembership.deleteMany({
+          where: { groupId, userId: targetId },
+        });
+        await tx.studyPlan.updateMany({
+          where: { groupId, userId: targetId },
+          data: { groupId: null },
+        });
+        return removed;
+      });
       if (removed.count === 0) {
-        res.status(404).json({ error: "That person isn't a member of this group." });
+        res
+          .status(404)
+          .json({ error: "That person isn't a member of this group." });
         return;
       }
       res.status(204).send();
@@ -528,18 +693,30 @@ router.post(
 
       for (let attempt = 0; attempt < 5; attempt++) {
         try {
-          const g = await prisma.studyGroup.update({
-            where: { id: groupId },
-            data: { inviteCode: makeInviteCode() },
-            select: { inviteCode: true },
+          const inviteCode = makeInviteCode();
+          const updated = await prisma.studyGroup.updateMany({
+            where: { id: groupId, ownerId: req.user!.id },
+            data: { inviteCode },
           });
-          res.json({ inviteCode: g.inviteCode });
+          if (!updated.count) {
+            res
+              .status(403)
+              .json({
+                error: "Only the current owner can regenerate invitations",
+              });
+            return;
+          }
+          res.json({ inviteCode });
           return;
         } catch (err) {
           if (!isUniqueViolation(err)) throw err;
         }
       }
-      res.status(503).json({ error: "Could not generate an invite code. Please try again." });
+      res
+        .status(503)
+        .json({
+          error: "Could not generate an invite code. Please try again.",
+        });
     } catch (err) {
       next(err);
     }
@@ -557,7 +734,10 @@ const generatePlanSchema = z.object({
   examDate: isoDate.optional(),
   hoursPerDay: z.number().min(1).max(12).optional(),
   // Per-subject exam dates; when given, only subjects with a date are scheduled
-  subjectExams: z.array(z.object({ subjectId: z.string(), date: isoDate })).max(50).optional(),
+  subjectExams: z
+    .array(z.object({ subjectId: z.string(), date: isoDate }))
+    .max(50)
+    .optional(),
   // SyllabusItem IDs to skip — all other units are included
   excludedUnitIds: z.array(z.string()).max(500).optional(),
 });
@@ -572,7 +752,8 @@ async function loadSharedSubjectIds(memberIds: string[]): Promise<string[]> {
     select: { subjectId: true },
   });
   const counts = new Map<string, number>();
-  for (const e of enrolments) counts.set(e.subjectId, (counts.get(e.subjectId) ?? 0) + 1);
+  for (const e of enrolments)
+    counts.set(e.subjectId, (counts.get(e.subjectId) ?? 0) + 1);
   const minShared = memberIds.length > 1 ? 2 : 1;
   return [...counts.entries()]
     .filter(([, n]) => n >= minShared)
@@ -593,27 +774,43 @@ router.get(
       if (!(await authorize(res, groupId, req.user!.id, "owner"))) return;
 
       const memberIds = (
-        await prisma.groupMembership.findMany({ where: { groupId }, select: { userId: true } })
+        await prisma.groupMembership.findMany({
+          where: { groupId },
+          select: { userId: true },
+        })
       ).map((m) => m.userId);
       const sharedIds = await loadSharedSubjectIds(memberIds);
       const rows =
         sharedIds.length > 0
           ? await prisma.subject.findMany({
-            where: { id: { in: sharedIds } },
-            select: {
-              id: true,
-              name: true,
-              code: true,
-              syllabusItems: {
-                orderBy: { unitNumber: "asc" },
-                select: { id: true, unitNumber: true, title: true, topics: true, hours: true },
+              where: { id: { in: sharedIds } },
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                syllabusItems: {
+                  orderBy: { unitNumber: "asc" },
+                  select: {
+                    id: true,
+                    unitNumber: true,
+                    title: true,
+                    topics: true,
+                    hours: true,
+                  },
+                },
               },
-            },
-          })
+            })
           : [];
       const order = new Map(sharedIds.map((id, i) => [id, i]));
       rows.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
-      res.json({ subjects: rows.map((s) => ({ id: s.id, name: s.name, code: s.code, units: s.syllabusItems })) });
+      res.json({
+        subjects: rows.map((s) => ({
+          id: s.id,
+          name: s.name,
+          code: s.code,
+          units: s.syllabusItems,
+        })),
+      });
     } catch (err) {
       next(err);
     }
@@ -632,13 +829,17 @@ router.post(
       const body = generatePlanSchema.parse(req.body);
       if (await hasActivePlan(groupId)) {
         res.status(409).json({
-          error: "This group already has an active plan. Delete it first to generate a new one.",
+          error:
+            "This group already has an active plan. Delete it first to generate a new one.",
         });
         return;
       }
 
       const memberIds = (
-        await prisma.groupMembership.findMany({ where: { groupId }, select: { userId: true } })
+        await prisma.groupMembership.findMany({
+          where: { groupId },
+          select: { userId: true },
+        })
       ).map((m) => m.userId);
       const since = new Date(Date.now() - QUIZ_WINDOW_DAYS * DAY_MS);
 
@@ -658,24 +859,35 @@ router.post(
       ]);
 
       // Weakest-for-the-most-people first
-      const weak = aggregateGroupWeakTopics(sessions, undefined, 12).map((t) => t.topic);
+      const weak = aggregateGroupWeakTopics(sessions, undefined, 12).map(
+        (t) => t.topic,
+      );
 
       // When per-subject exam dates are given, only schedule the shared subjects that have one
       const subjectExamDates = new Map<string, Date>();
       for (const e of body.subjectExams ?? []) {
-        if (e.subjectId && e.date) subjectExamDates.set(e.subjectId, istMidnight(new Date(e.date)));
+        if (e.subjectId && e.date)
+          subjectExamDates.set(e.subjectId, istMidnight(new Date(e.date)));
       }
       const sharedIds =
-        subjectExamDates.size > 0 ? allSharedIds.filter((id) => subjectExamDates.has(id)) : allSharedIds;
+        subjectExamDates.size > 0
+          ? allSharedIds.filter((id) => subjectExamDates.has(id))
+          : allSharedIds;
       if (subjectExamDates.size > 0 && sharedIds.length === 0) {
-        res.status(400).json({ error: "None of the exam dates match subjects shared by the group." });
+        res
+          .status(400)
+          .json({
+            error: "None of the exam dates match subjects shared by the group.",
+          });
         return;
       }
       const excluded = new Set(body.excludedUnitIds ?? []);
 
       const warnings: string[] = [];
       const startDate = new Date();
-      const examDate = body.examDate ? istMidnight(new Date(body.examDate)) : null;
+      const examDate = body.examDate
+        ? istMidnight(new Date(body.examDate))
+        : null;
       const upcomingExamDays = [...subjectExamDates.values()]
         .map((d) => istDayDiff(startDate, d))
         .filter((n) => n > 0);
@@ -688,24 +900,30 @@ router.post(
       const subjectRows =
         sharedIds.length > 0
           ? await prisma.subject.findMany({
-            where: { id: { in: sharedIds } },
-            select: {
-              id: true,
-              name: true,
-              code: true,
-              syllabusItems: { orderBy: { unitNumber: "asc" }, select: { id: true, title: true, topics: true } },
-            },
-          })
+              where: { id: { in: sharedIds } },
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                syllabusItems: {
+                  orderBy: { unitNumber: "asc" },
+                  select: { id: true, title: true, topics: true },
+                },
+              },
+            })
           : [];
 
       const subjects: PlanSubject[] = subjectRows.map((s) => {
         const topics = new Set<string>();
         for (const unit of s.syllabusItems) {
           if (excluded.has(unit.id)) continue;
-          for (const t of unit.topics) topics.add(`[${unit.title.replace(/^Unit \d+:?\s*/i, "")}] ${t}`);
+          for (const t of unit.topics)
+            topics.add(`[${unit.title.replace(/^Unit \d+:?\s*/i, "")}] ${t}`);
         }
         if (topics.size === 0) {
-          warnings.push(`${s.name}: no syllabus found, so it is scheduled as a single topic.`);
+          warnings.push(
+            `${s.name}: no syllabus found, so it is scheduled as a single topic.`,
+          );
           topics.add(s.name);
         }
         return {
@@ -722,9 +940,15 @@ router.post(
         subjects.map(async (subj) => {
           if (subj.topics.length <= 1) return;
           try {
-            subj.topics = prioritizeTopics(subj.topics, await scoreTopicsByPYQFrequency(subj.topics, subj.id));
+            subj.topics = prioritizeTopics(
+              subj.topics,
+              await scoreTopicsByPYQFrequency(subj.topics, subj.id),
+            );
           } catch (err) {
-            console.error(`[groups] topic scoring failed for ${subj.name}:`, err);
+            console.error(
+              `[groups] topic scoring failed for ${subj.name}:`,
+              err,
+            );
           }
         }),
       );
@@ -735,23 +959,38 @@ router.post(
         // up to ~1 focus day in 4, and always at least one day left for the subjects
         const focusCount =
           weak.length > 0 && totalDays >= 2
-            ? Math.min(weak.length, Math.max(1, Math.floor(totalDays / 4)), totalDays - 1)
+            ? Math.min(
+                weak.length,
+                Math.max(1, Math.floor(totalDays / 4)),
+                totalDays - 1,
+              )
             : 0;
         const focusDays = focusCount > 0 ? splitEvenly(weak, focusCount) : [];
         const options: PlanOptions = { hoursPerDay: body.hoursPerDay ?? 4 };
-        const built = buildSmartDays(subjects, startDate, totalDays, focusDays, options);
+        const built = buildSmartDays(
+          subjects,
+          startDate,
+          totalDays,
+          focusDays,
+          options,
+        );
         days = built.days;
         warnings.push(...built.warnings);
         config = buildPlanConfig(subjects, startDate, totalDays, options);
       } else {
-        warnings.push("No subjects are shared by 2+ members, so this plan is built from weak topics only.");
+        warnings.push(
+          "No subjects are shared by 2+ members, so this plan is built from weak topics only.",
+        );
         days = spreadTopics(weak, totalDays, startDate);
       }
 
       // Headline exam date = the earliest exam still ahead
       const nextExam =
         [...subjects.map((s) => s.examDate), examDate]
-          .filter((d): d is Date => d !== null && d.getTime() > istMidnight(startDate).getTime())
+          .filter(
+            (d): d is Date =>
+              d !== null && d.getTime() > istMidnight(startDate).getTime(),
+          )
           .sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
 
       const plan = await createPlanForMembers(memberIds, userId, {
@@ -785,106 +1024,128 @@ const groupPlanSchema = z.object({
   topics: z.array(z.string().trim().min(1).max(200)).max(500).optional(),
 });
 
-router.post("/:id/plan", requireAuth(), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const userId = req.user!.id;
-    const groupId = String(req.params["id"]);
-    if (!(await authorize(res, groupId, userId, "owner"))) return;
+router.post(
+  "/:id/plan",
+  requireAuth(),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.id;
+      const groupId = String(req.params["id"]);
+      if (!(await authorize(res, groupId, userId, "owner"))) return;
 
-    const body = groupPlanSchema.parse(req.body);
-    if (await hasActivePlan(groupId)) {
-      res.status(409).json({
-        error: "This group already has an active plan. Delete it first to create a new one.",
+      const body = groupPlanSchema.parse(req.body);
+      if (await hasActivePlan(groupId)) {
+        res.status(409).json({
+          error:
+            "This group already has an active plan. Delete it first to create a new one.",
+        });
+        return;
+      }
+
+      const memberIds = (
+        await prisma.groupMembership.findMany({
+          where: { groupId },
+          select: { userId: true },
+        })
+      ).map((m) => m.userId);
+
+      const startDate = new Date();
+      const exam = body.examDate ? istMidnight(new Date(body.examDate)) : null;
+      const plan = await createPlanForMembers(memberIds, userId, {
+        groupId,
+        title: body.title,
+        totalDays: body.totalDays,
+        examDate:
+          exam && exam.getTime() > istMidnight(startDate).getTime()
+            ? exam
+            : null,
+        days: spreadTopics(body.topics ?? [], body.totalDays, startDate),
       });
-      return;
+
+      res.status(201).json({ plan });
+    } catch (err) {
+      next(err);
     }
-
-    const memberIds = (
-      await prisma.groupMembership.findMany({ where: { groupId }, select: { userId: true } })
-    ).map((m) => m.userId);
-
-    const startDate = new Date();
-    const exam = body.examDate ? istMidnight(new Date(body.examDate)) : null;
-    const plan = await createPlanForMembers(memberIds, userId, {
-      groupId,
-      title: body.title,
-      totalDays: body.totalDays,
-      examDate: exam && exam.getTime() > istMidnight(startDate).getTime() ? exam : null,
-      days: spreadTopics(body.topics ?? [], body.totalDays, startDate),
-    });
-
-    res.status(201).json({ plan });
-  } catch (err) {
-    next(err);
-  }
-});
+  },
+);
 
 // ── DELETE /api/groups/:id/plan ───────────────────────────────────────────────
 
-router.delete("/:id/plan", requireAuth(), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const groupId = String(req.params["id"]);
-    if (!(await authorize(res, groupId, req.user!.id, "owner"))) return;
-    const { count } = await prisma.studyPlan.deleteMany({ where: { groupId } });
-    res.json({ deleted: count });
-  } catch (err) {
-    next(err);
-  }
-});
+router.delete(
+  "/:id/plan",
+  requireAuth(),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const groupId = String(req.params["id"]);
+      if (!(await authorize(res, groupId, req.user!.id, "owner"))) return;
+      const { count } = await prisma.studyPlan.deleteMany({
+        where: { groupId },
+      });
+      res.json({ deleted: count });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // ── GET /api/groups/:id/progress ──────────────────────────────────────────────
 
-router.get("/:id/progress", requireAuth(), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const userId = req.user!.id;
-    const groupId = String(req.params["id"]);
-    if (!(await authorize(res, groupId, userId, "member"))) return;
+router.get(
+  "/:id/progress",
+  requireAuth(),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.id;
+      const groupId = String(req.params["id"]);
+      if (!(await authorize(res, groupId, userId, "member"))) return;
 
-    const [members, plans] = await Promise.all([
-      prisma.groupMembership.findMany({
-        where: { groupId },
-        select: { user: { select: { id: true, name: true } } },
-        orderBy: { joinedAt: "asc" },
-      }),
-      prisma.studyPlan.findMany({
-        where: { groupId },
-        orderBy: { createdAt: "desc" },
-        select: {
-          userId: true,
-          title: true,
-          totalDays: true,
-          status: true,
-          days: { select: { isCompleted: true } },
-        },
-      }),
-    ]);
+      const [members, plans] = await Promise.all([
+        prisma.groupMembership.findMany({
+          where: { groupId },
+          select: { user: { select: { id: true, name: true } } },
+          orderBy: { joinedAt: "asc" },
+        }),
+        prisma.studyPlan.findMany({
+          where: { groupId },
+          orderBy: { createdAt: "desc" },
+          select: {
+            userId: true,
+            title: true,
+            totalDays: true,
+            status: true,
+            days: { select: { isCompleted: true } },
+          },
+        }),
+      ]);
 
-    const latest = new Map<string, (typeof plans)[number]>();
-    for (const p of plans) if (!latest.has(p.userId)) latest.set(p.userId, p);
+      const latest = new Map<string, (typeof plans)[number]>();
+      for (const p of plans) if (!latest.has(p.userId)) latest.set(p.userId, p);
 
-    const progress = members
-      .map(({ user }) => {
-        const p = latest.get(user.id);
-        const doneDays = p ? p.days.filter((d) => d.isCompleted).length : 0;
-        const totalDays = p?.totalDays ?? 0;
-        return {
-          userId: user.id,
-          name: user.name,
-          isMe: user.id === userId,
-          hasPlan: p !== undefined,
-          planTitle: p?.title ?? null,
-          status: p?.status ?? null,
-          doneDays,
-          totalDays,
-          percentage: totalDays > 0 ? Math.round((doneDays / totalDays) * 100) : 0,
-        };
-      })
-      .sort((a, b) => b.percentage - a.percentage);
+      const progress = members
+        .map(({ user }) => {
+          const p = latest.get(user.id);
+          const doneDays = p ? p.days.filter((d) => d.isCompleted).length : 0;
+          const totalDays = p?.totalDays ?? 0;
+          return {
+            userId: user.id,
+            name: user.name,
+            isMe: user.id === userId,
+            hasPlan: p !== undefined,
+            planTitle: p?.title ?? null,
+            status: p?.status ?? null,
+            doneDays,
+            totalDays,
+            percentage:
+              totalDays > 0 ? Math.round((doneDays / totalDays) * 100) : 0,
+          };
+        })
+        .sort((a, b) => b.percentage - a.percentage);
 
-    res.json({ progress });
-  } catch (err) {
-    next(err);
-  }
-});
+      res.json({ progress });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 export default router;

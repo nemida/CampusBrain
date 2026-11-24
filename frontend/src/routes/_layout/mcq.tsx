@@ -1,6 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Brain, CheckCircle2, XCircle, Trophy, RotateCcw, Zap, Loader2, Trash2 } from "lucide-react";
+import {
+  Brain,
+  CheckCircle2,
+  XCircle,
+  Trophy,
+  RotateCcw,
+  Zap,
+  Loader2,
+  Trash2,
+} from "lucide-react";
 
 import { toneStyle } from "@/lib/tone";
 import { LoginModal } from "@/components/campus/LoginModal";
@@ -38,7 +47,7 @@ function scoreChip(score: number): string {
 
 function MCQPage() {
   const search = Route.useSearch();
-  
+
   const { user } = useAuthStore();
   const [loginOpen, setLoginOpen] = useState(false);
 
@@ -210,10 +219,7 @@ function MCQPage() {
           <p className="mt-2 text-sm text-muted-foreground">
             Test your knowledge with AI-generated questions from your subjects.
           </p>
-          <button
-            onClick={() => setLoginOpen(true)}
-            className="btn btn-primary mt-5 w-full"
-          >
+          <button onClick={() => setLoginOpen(true)} className="btn btn-primary mt-5 w-full">
             Sign In
           </button>
         </div>
@@ -230,7 +236,6 @@ function MCQPage() {
     <>
       <main className="mx-auto max-w-2xl space-y-8 px-6 py-10">
         <div>
-
           <h1 className="mt-1 text-3xl font-bold tracking-tight text-foreground">MCQ Game</h1>
           <p className="mt-1.5 text-sm text-muted-foreground">
             AI-generated multiple choice questions from your subjects.
@@ -238,9 +243,7 @@ function MCQPage() {
         </div>
 
         {error && (
-          <p className="rounded-xl bg-destructive/10 p-4 text-sm text-destructive">
-            {error}
-          </p>
+          <p className="rounded-xl bg-destructive/10 p-4 text-sm text-destructive">{error}</p>
         )}
 
         {/* ── Existing quizzes ── */}
@@ -278,7 +281,9 @@ function MCQPage() {
                           </p>
                         </div>
                         {completed ? (
-                          <span className={`chip ml-3 shrink-0 border-transparent font-semibold ${scoreChip(s.score)}`}>
+                          <span
+                            className={`chip ml-3 shrink-0 border-transparent font-semibold ${scoreChip(s.score)}`}
+                          >
                             {Math.round(s.score)}%
                           </span>
                         ) : (
@@ -313,73 +318,78 @@ function MCQPage() {
               </section>
             )}
 
-        {/* ── Config ── */}
-        <section className="card p-6">
-            <h2 className="mb-2 text-base font-semibold text-foreground">Configure your quiz</h2>
-            {subjects.length > 0 && (
-              <p className="mb-4 text-xs text-muted-foreground">
-                Showing subjects from your profile.{" "}
-                <Link to="/profile" className="text-primary hover:underline">
-                  Edit subjects →
-                </Link>
-              </p>
-            )}
-            <form onSubmit={handleStart} className="space-y-5">
-              <div className="space-y-2">
-                <span className="field-label">Subject (optional)</span>
-                <div className="flex flex-wrap gap-2" role="group" aria-label="Subject">
-                  <button
-                    type="button"
-                    aria-pressed={subjectId === ""}
-                    onClick={() => setSubjectId("")}
-                    className={`chip ${subjectId === "" ? "chip-active" : ""}`}
-                  >
-                    General / Any
-                  </button>
-                  {subjects.map((s) => (
+            {/* ── Config ── */}
+            <section className="card p-6">
+              <h2 className="mb-2 text-base font-semibold text-foreground">Configure your quiz</h2>
+              {subjects.length > 0 && (
+                <p className="mb-4 text-xs text-muted-foreground">
+                  Showing subjects from your profile.{" "}
+                  <Link to="/profile" className="text-primary hover:underline">
+                    Edit subjects →
+                  </Link>
+                </p>
+              )}
+              <form onSubmit={handleStart} className="space-y-5">
+                <div className="space-y-2">
+                  <span className="field-label">Subject (optional)</span>
+                  <div className="flex flex-wrap gap-2" role="group" aria-label="Subject">
                     <button
-                      key={s.id}
                       type="button"
-                      aria-pressed={subjectId === s.id}
-                      title={s.name}
-                      onClick={() => setSubjectId(s.id)}
-                      style={toneStyle(s.id)}
-                      className={`chip ${subjectId === s.id ? "chip-active" : "chip-tone"}`}
+                      aria-pressed={subjectId === ""}
+                      onClick={() => setSubjectId("")}
+                      className={`chip ${subjectId === "" ? "chip-active" : ""}`}
                     >
-                      {s.code} — {s.name}
+                      General / Any
                     </button>
-                  ))}
+                    {subjects.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        aria-pressed={subjectId === s.id}
+                        title={s.name}
+                        onClick={() => setSubjectId(s.id)}
+                        style={toneStyle(s.id)}
+                        className={`chip ${subjectId === s.id ? "chip-active" : "chip-tone"}`}
+                      >
+                        {s.code} — {s.name}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <div className="space-y-1.5">
-                <label className="field-label">Topic (optional)</label>
-                <input
-                  className="field"
-                  placeholder="e.g. Pointers, Binary Trees, SQL Joins"
-                  value={topic}
-                  onChange={(e) => setTopic(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <span className="field-label">Number of questions</span>
-                <div className="segmented" role="group" aria-label="Number of questions">
-                  {[5, 10, 15, 20].map((n) => (
-                    <button key={n} type="button" aria-pressed={count === n} onClick={() => setCount(n)}>
-                      {n}
-                    </button>
-                  ))}
+                <div className="space-y-1.5">
+                  <label className="field-label">Topic (optional)</label>
+                  <input
+                    className="field"
+                    placeholder="e.g. Pointers, Binary Trees, SQL Joins"
+                    value={topic}
+                    onChange={(e) => setTopic(e.target.value)}
+                  />
                 </div>
-              </div>
-              <button
-                type="submit"
-                disabled={loading}
-                className="btn btn-primary w-full"
-              >
-                {loading ? <Loader2 className="size-4 animate-spin" /> : <Zap className="size-4" />}
-                {loading ? "Generating…" : "Start Quiz"}
-              </button>
-            </form>
-          </section>
+                <div className="space-y-1.5">
+                  <span className="field-label">Number of questions</span>
+                  <div className="segmented" role="group" aria-label="Number of questions">
+                    {[5, 10, 15, 20].map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        aria-pressed={count === n}
+                        onClick={() => setCount(n)}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button type="submit" disabled={loading} className="btn btn-primary w-full">
+                  {loading ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Zap className="size-4" />
+                  )}
+                  {loading ? "Generating…" : "Start Quiz"}
+                </button>
+              </form>
+            </section>
           </>
         )}
 
@@ -430,7 +440,9 @@ function MCQPage() {
                       >
                         <span
                           className={`flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-                            picked === idx ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground"
+                            picked === idx
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-background text-muted-foreground"
                           }`}
                         >
                           {["A", "B", "C", "D"][idx]}
@@ -454,10 +466,7 @@ function MCQPage() {
               </button>
 
               {current < questions.length - 1 ? (
-                <button
-                  onClick={() => setCurrent((c) => c + 1)}
-                  className="btn btn-primary"
-                >
+                <button onClick={() => setCurrent((c) => c + 1)} className="btn btn-primary">
                   Next
                 </button>
               ) : (
@@ -482,7 +491,9 @@ function MCQPage() {
               <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-accent text-primary">
                 <Trophy className="size-7" />
               </div>
-              <p className="font-display mt-4 text-6xl font-bold text-foreground">{Math.round(result.score)}%</p>
+              <p className="font-display mt-4 text-6xl font-bold text-foreground">
+                {Math.round(result.score)}%
+              </p>
               <p className="mt-2 text-sm text-muted-foreground">
                 {result.correctQ} correct out of {result.totalQ} questions
               </p>
@@ -523,10 +534,7 @@ function MCQPage() {
               })}
             </div>
 
-            <button
-              onClick={handleReset}
-              className="btn btn-outline w-full"
-            >
+            <button onClick={handleReset} className="btn btn-outline w-full">
               <RotateCcw className="size-4" />
               Play Again
             </button>

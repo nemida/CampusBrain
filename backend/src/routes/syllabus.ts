@@ -17,6 +17,26 @@ import { ingestSyllabusItem } from "../lib/ingestion.js";
 
 const router = Router();
 
+async function validateSubjectScope(
+  subjectId: string | undefined,
+  syllabus: { branchId: string; semester: number },
+): Promise<void> {
+  if (!subjectId) return;
+  const subject = await prisma.subject.findFirst({
+    where: {
+      id: subjectId,
+      branchId: syllabus.branchId,
+      semester: syllabus.semester,
+    },
+    select: { id: true },
+  });
+  if (!subject)
+    throw Object.assign(
+      new Error("Select a subject from this syllabus's branch and semester."),
+      { statusCode: 400 },
+    );
+}
+
 // ── response shaping ─────────────────────────────────────────────────────────────────────────────
 // The frontend expects flat `branchName` / `branchCode` / `subjectName` fields.
 
@@ -72,6 +92,7 @@ const listQuerySchema = z.object({
   branchId: z.string().optional(),
   semester: z.coerce.number().int().min(1).max(8).optional(),
   scheme: z.string().optional(),
+  subjectId: z.string().min(1).optional(),
 });
 
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
@@ -83,10 +104,17 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
         ...(query.branchId ? { branchId: query.branchId } : {}),
         ...(query.semester ? { semester: query.semester } : {}),
         ...(query.scheme ? { scheme: query.scheme } : {}),
+        ...(query.subjectId
+          ? { items: { some: { subjectId: query.subjectId } } }
+          : {}),
       },
       include: {
         branch: { select: { id: true, name: true, code: true } },
-        items: { orderBy: { unitNumber: "asc" }, include: { subject: subjectSelect } },
+        items: {
+          ...(query.subjectId ? { where: { subjectId: query.subjectId } } : {}),
+          orderBy: { unitNumber: "asc" },
+          include: { subject: subjectSelect },
+        },
       },
       orderBy: [{ semester: "asc" }, { scheme: "desc" }],
     });
@@ -107,7 +135,9 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
         branch: { select: { id: true, name: true, code: true } },
         items: {
           orderBy: { unitNumber: "asc" },
-          include: { subject: { select: { id: true, code: true, name: true } } },
+          include: {
+            subject: { select: { id: true, code: true, name: true } },
+          },
         },
       },
     });
@@ -139,7 +169,9 @@ router.post(
     try {
       const body = createSyllabusSchema.parse(req.body);
 
-      const branch = await prisma.branch.findUnique({ where: { id: body.branchId } });
+      const branch = await prisma.branch.findUnique({
+        where: { id: body.branchId },
+      });
       if (!branch) {
         res.status(404).json({ error: "Branch not found" });
         return;
@@ -169,7 +201,7 @@ router.post(
 // ── POST /api/syllabus/:id/parse ── AI parse pasted syllabus text ─────────────
 
 const parseSchema = z.object({
-  text: z.string().min(10),
+  text: z.string().trim().min(10).max(20_000),
   subjectId: z.string().optional(),
 });
 
@@ -178,10 +210,14 @@ router.post(
   requireAuth([Role.TEACHER, Role.ADMIN]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { text, subjectId: overrideSubjectId } = parseSchema.parse(req.body);
+      const { text, subjectId: overrideSubjectId } = parseSchema.parse(
+        req.body,
+      );
       const syllabusId = String(req.params["id"]);
 
-      const syllabus = await prisma.syllabus.findUnique({ where: { id: syllabusId } });
+      const syllabus = await prisma.syllabus.findUnique({
+        where: { id: syllabusId },
+      });
       if (!syllabus) {
         res.status(404).json({ error: "Syllabus not found" });
         return;
@@ -193,7 +229,18 @@ router.post(
         select: { id: true, name: true, code: true },
       });
 
-      const subjectList = subjects.map((s) => `- ${s.code}: ${s.name}`).join("\n");
+      const subjectList = subjects
+        .map((s) => `- ${s.code}: ${s.name}`)
+        .join("\n");
+      if (
+        overrideSubjectId &&
+        !subjects.some((subject) => subject.id === overrideSubjectId)
+      ) {
+        res.status(400).json({
+          error: "Select a subject from this syllabus's branch and semester.",
+        });
+        return;
+      }
 
       const prompt = `You are given raw syllabus text. Parse it into structured units.
 
@@ -221,7 +268,9 @@ Important:
 
       const result = await chatComplete([{ role: "user", content: prompt }]);
       if (!result) {
-        res.status(502).json({ error: "AI service unavailable. Try adding units manually." });
+        res.status(502).json({
+          error: "AI service unavailable. Try adding units manually.",
+        });
         return;
       }
 
@@ -235,22 +284,38 @@ Important:
         }>;
       }>(result.content);
 
-      if (!parsed?.units || parsed.units.length === 0) {
-        res
-          .status(422)
-          .json({
-            error: "Could not parse units from the pasted text. Try formatting it more clearly.",
-          });
+      const validated = z
+        .object({
+          units: z
+            .array(
+              z.object({
+                unitNumber: z.number().int().min(1).max(100).optional(),
+                title: z.string().trim().max(300).optional(),
+                topics: z
+                  .array(z.string().trim().min(1).max(200))
+                  .min(1)
+                  .max(100),
+                hours: z.number().int().min(1).max(1000).optional(),
+                subjectCode: z.string().max(50).optional(),
+              }),
+            )
+            .min(1)
+            .max(100),
+        })
+        .safeParse(parsed);
+      if (!validated.success) {
+        res.status(422).json({
+          error:
+            "Could not parse units from the pasted text. Try formatting it more clearly.",
+        });
         return;
       }
 
       // Create SyllabusItem records
-      const created: ReturnType<typeof shapeItem>[] = [];
-      for (const [index, unit] of parsed.units.entries()) {
-        const topics = Array.isArray(unit.topics) ? unit.topics.map(String).filter(Boolean) : [];
-        const unitNumber =
-          Number.isInteger(unit.unitNumber) && unit.unitNumber > 0 ? unit.unitNumber : index + 1;
-        const hours = Number.isInteger(unit.hours) && unit.hours! > 0 ? unit.hours : undefined;
+      const writes = validated.data.units.map((unit, index) => {
+        const topics = unit.topics;
+        const unitNumber = unit.unitNumber ?? index + 1;
+        const hours = unit.hours;
         // Use the explicitly chosen subject, or try AI's match, or leave null
         let subjectId: string | undefined;
         if (overrideSubjectId) {
@@ -262,7 +327,7 @@ Important:
           if (match) subjectId = match.id;
         }
 
-        const item = await prisma.syllabusItem.create({
+        return prisma.syllabusItem.create({
           data: {
             syllabusId,
             unitNumber,
@@ -273,13 +338,19 @@ Important:
           },
           include: { subject: subjectSelect },
         });
-        created.push(shapeItem(item));
-
-        // Fire-and-forget RAG ingestion for this unit
-        ingestSyllabusItem(item.id, item.subjectId, item.title, item.topics).catch(() => undefined);
-      }
-
-      res.status(201).json({ items: created, count: created.length });
+      });
+      // Persist all units together; never leave a half-imported syllabus behind.
+      const created = await prisma.$transaction(writes);
+      res
+        .status(201)
+        .json({ items: created.map(shapeItem), count: created.length });
+      for (const item of created)
+        ingestSyllabusItem(
+          item.id,
+          item.subjectId,
+          item.title,
+          item.topics,
+        ).catch(() => undefined);
     } catch (err) {
       next(err);
     }
@@ -290,8 +361,8 @@ Important:
 
 const createItemSchema = z.object({
   unitNumber: z.number().int().min(1),
-  title: z.string().min(1),
-  topics: z.array(z.string()).min(1),
+  title: z.string().trim().min(1).max(300),
+  topics: z.array(z.string().trim().min(1).max(200)).min(1).max(100),
   hours: z.number().int().min(1).optional(),
   subjectId: z.string().optional(),
 });
@@ -310,6 +381,7 @@ router.post(
         res.status(404).json({ error: "Syllabus not found" });
         return;
       }
+      await validateSubjectScope(body.subjectId, syllabus);
 
       const item = await prisma.syllabusItem.create({
         data: {
@@ -326,7 +398,12 @@ router.post(
       res.status(201).json({ item: shapeItem(item) });
 
       // Fire-and-forget RAG ingestion
-      ingestSyllabusItem(item.id, item.subjectId, item.title, item.topics).catch(() => undefined);
+      ingestSyllabusItem(
+        item.id,
+        item.subjectId,
+        item.title,
+        item.topics,
+      ).catch(() => undefined);
     } catch (err) {
       next(err);
     }
@@ -337,8 +414,8 @@ router.post(
 
 const updateItemSchema = z.object({
   unitNumber: z.number().int().min(1).optional(),
-  title: z.string().min(1).optional(),
-  topics: z.array(z.string()).optional(),
+  title: z.string().trim().min(1).max(300).optional(),
+  topics: z.array(z.string().trim().min(1).max(200)).min(1).max(100).optional(),
   hours: z.number().int().min(1).optional(),
   subjectId: z.string().optional(),
 });
@@ -351,21 +428,30 @@ router.patch(
       const body = updateItemSchema.parse(req.body);
 
       const item = await prisma.syllabusItem.findFirst({
-        where: { id: String(req.params["itemId"]), syllabusId: String(req.params["id"]) },
+        where: {
+          id: String(req.params["itemId"]),
+          syllabusId: String(req.params["id"]),
+        },
+        include: { syllabus: { select: { branchId: true, semester: true } } },
       });
       if (!item) {
         res.status(404).json({ error: "Syllabus item not found" });
         return;
       }
+      await validateSubjectScope(body.subjectId, item.syllabus);
 
       const updated = await prisma.syllabusItem.update({
         where: { id: item.id },
         data: {
-          ...(body.unitNumber !== undefined ? { unitNumber: body.unitNumber } : {}),
+          ...(body.unitNumber !== undefined
+            ? { unitNumber: body.unitNumber }
+            : {}),
           ...(body.title !== undefined ? { title: body.title } : {}),
           ...(body.topics !== undefined ? { topics: body.topics } : {}),
           ...(body.hours !== undefined ? { hours: body.hours } : {}),
-          ...(body.subjectId !== undefined ? { subjectId: body.subjectId } : {}),
+          ...(body.subjectId !== undefined
+            ? { subjectId: body.subjectId }
+            : {}),
         },
         include: { subject: subjectSelect },
       });
@@ -373,7 +459,12 @@ router.patch(
       res.json({ item: shapeItem(updated) });
 
       // Fire-and-forget re-ingestion when topics change
-      ingestSyllabusItem(updated.id, updated.subjectId, updated.title, updated.topics).catch(() => undefined);
+      ingestSyllabusItem(
+        updated.id,
+        updated.subjectId,
+        updated.title,
+        updated.topics,
+      ).catch(() => undefined);
     } catch (err) {
       next(err);
     }
@@ -388,7 +479,10 @@ router.delete(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const item = await prisma.syllabusItem.findFirst({
-        where: { id: String(req.params["itemId"]), syllabusId: String(req.params["id"]) },
+        where: {
+          id: String(req.params["itemId"]),
+          syllabusId: String(req.params["id"]),
+        },
       });
       if (!item) {
         res.status(404).json({ error: "Syllabus item not found" });

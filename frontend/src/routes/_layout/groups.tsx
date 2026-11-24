@@ -87,7 +87,9 @@ function PanelTitle({ icon: Icon, children }: { icon: typeof Users; children: Re
 
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
-  return ((parts[0]?.[0] ?? "?") + (parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "")).toUpperCase();
+  return (
+    (parts[0]?.[0] ?? "?") + (parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "")
+  ).toUpperCase();
 }
 
 function Avatar({ id, name, size = "size-8" }: { id: string; name: string; size?: string }) {
@@ -104,7 +106,6 @@ function Avatar({ id, name, size = "size-8" }: { id: string; name: string; size?
     </span>
   );
 }
-
 
 async function copyText(text: string, okMessage: string) {
   try {
@@ -154,7 +155,8 @@ function GroupsPage() {
     if (user) void load();
   }, [user, load]);
 
-  const replaceGroup = (g: ApiStudyGroup) => setGroups((p) => p.map((x) => (x.id === g.id ? g : x)));
+  const replaceGroup = (g: ApiStudyGroup) =>
+    setGroups((p) => p.map((x) => (x.id === g.id ? g : x)));
   const removeGroup = (id: string) => setGroups((p) => p.filter((g) => g.id !== id));
 
   async function handleCreate(e: React.FormEvent) {
@@ -175,7 +177,9 @@ function GroupsPage() {
       setCDesc("");
       setCBranch("");
       setCSem("");
-      toast.success("Group created", { description: "Share the invite code or link with your friends." });
+      toast.success("Group created", {
+        description: "Share the invite code or link with your friends.",
+      });
     } catch (err) {
       setCError(errMsg(err, "Failed."));
     } finally {
@@ -207,7 +211,9 @@ function GroupsPage() {
           <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-accent text-primary">
             <Users className="size-5" />
           </div>
-          <h2 className="mt-4 text-base font-semibold text-foreground">Sign in to use Study Groups</h2>
+          <h2 className="mt-4 text-base font-semibold text-foreground">
+            Sign in to use Study Groups
+          </h2>
           <p className="mt-2 text-sm text-muted-foreground">
             {join
               ? `You've been invited to a group (code ${join}). Sign in to join it.`
@@ -217,7 +223,11 @@ function GroupsPage() {
             Sign In
           </button>
         </div>
-        <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} onSuccess={() => setLoginOpen(false)} />
+        <LoginModal
+          open={loginOpen}
+          onClose={() => setLoginOpen(false)}
+          onSuccess={() => setLoginOpen(false)}
+        />
       </div>
     );
   }
@@ -226,10 +236,10 @@ function GroupsPage() {
     <main className="mx-auto max-w-4xl space-y-8 px-4 py-10">
       <div className="flex items-end justify-between gap-4">
         <div>
-
           <h1 className="mt-1 text-3xl font-bold tracking-tight text-foreground">Study Groups</h1>
           <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-            See what topics your group struggles with, track progress together, and generate a shared plan.
+            See what topics your group struggles with, track progress together, and generate a
+            shared plan.
           </p>
         </div>
         <button
@@ -246,10 +256,14 @@ function GroupsPage() {
         {showCreate && (
           <section className="card p-6 lg:col-span-3">
             <h2 className="text-sm font-semibold text-foreground">Create group</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">Invite friends with a 6-character code.</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Invite friends with a 6-character code.
+            </p>
             <form onSubmit={handleCreate} className="mt-4 space-y-4">
               <div>
-                <label htmlFor="g-name" className="field-label">Name *</label>
+                <label htmlFor="g-name" className="field-label">
+                  Name *
+                </label>
                 <input
                   id="g-name"
                   className="field"
@@ -261,7 +275,9 @@ function GroupsPage() {
                 />
               </div>
               <div>
-                <label htmlFor="g-desc" className="field-label">Description</label>
+                <label htmlFor="g-desc" className="field-label">
+                  Description
+                </label>
                 <input
                   id="g-desc"
                   className="field"
@@ -272,18 +288,31 @@ function GroupsPage() {
                 />
               </div>
               <div>
-                <label htmlFor="g-branch" className="field-label">Branch</label>
-                <select id="g-branch" className="field" value={cBranch} onChange={(e) => setCBranch(e.target.value)}>
+                <label htmlFor="g-branch" className="field-label">
+                  Branch
+                </label>
+                <select
+                  id="g-branch"
+                  className="field"
+                  value={cBranch}
+                  onChange={(e) => setCBranch(e.target.value)}
+                >
                   <option value="">Any</option>
                   {BRANCHES.map((b) => (
-                    <option key={b} value={b}>{b}</option>
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
                   ))}
                 </select>
               </div>
               <div>
-                <span id="g-sem-label" className="field-label">Semester</span>
+                <span id="g-sem-label" className="field-label">
+                  Semester
+                </span>
                 <div className="segmented" role="group" aria-labelledby="g-sem-label">
-                  <button type="button" aria-pressed={cSem === ""} onClick={() => setCSem("")}>Any</button>
+                  <button type="button" aria-pressed={cSem === ""} onClick={() => setCSem("")}>
+                    Any
+                  </button>
                   {SEMESTERS.map((s) => (
                     <button
                       key={s}
@@ -301,7 +330,11 @@ function GroupsPage() {
                 <button type="submit" disabled={cLoading} className="btn btn-primary">
                   {cLoading && <Loader2 className="size-3.5 animate-spin" />} Create
                 </button>
-                <button type="button" onClick={() => setShowCreate(false)} className="btn btn-outline">
+                <button
+                  type="button"
+                  onClick={() => setShowCreate(false)}
+                  className="btn btn-outline"
+                >
                   Cancel
                 </button>
               </div>
@@ -320,10 +353,13 @@ function GroupsPage() {
           <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <Link2 className="size-4 text-primary" /> Join with invite code
           </h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">Got a code from a friend? Enter it here.</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Got a code from a friend? Enter it here.
+          </p>
           {join && (
             <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Info className="size-3.5" /> You opened an invite link. Check the code and press Join.
+              <Info className="size-3.5" /> You opened an invite link. Check the code and press
+              Join.
             </p>
           )}
           <form onSubmit={handleJoin} className="mt-4 flex gap-2">
@@ -352,7 +388,9 @@ function GroupsPage() {
       ) : error ? (
         <div className="card border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
           {error}
-          <button onClick={() => void load()} className="ml-3 underline">Retry</button>
+          <button onClick={() => void load()} className="ml-3 underline">
+            Retry
+          </button>
         </div>
       ) : groups.length === 0 ? (
         <div className="card p-12 text-center">
@@ -383,7 +421,6 @@ function GroupsPage() {
   );
 }
 
-
 // ── One group ────────────────────────────────────────────────────────────────
 
 function GroupCard({
@@ -401,7 +438,8 @@ function GroupCard({
   onGone: (id: string) => void;
   onRefresh: () => Promise<void>;
 }) {
-  const isOwner = group.myRole === "OWNER" || !!group.members?.some((m) => m.id === userId && m.role === "OWNER");
+  const isOwner =
+    group.myRole === "OWNER" || !!group.members?.some((m) => m.id === userId && m.role === "OWNER");
 
   const [open, setOpen] = useState(defaultOpen);
   const [analytics, setAnalytics] = useState<ApiGroupAnalytics | null>(null);
@@ -418,7 +456,10 @@ function GroupCard({
 
   const loadInsights = useCallback(async () => {
     setInsightsLoading(true);
-    const [a, p] = await Promise.allSettled([fetchGroupAnalytics(group.id), fetchGroupProgress(group.id)]);
+    const [a, p] = await Promise.allSettled([
+      fetchGroupAnalytics(group.id),
+      fetchGroupProgress(group.id),
+    ]);
     setAnalytics(a.status === "fulfilled" ? a.value : null);
     setProgress(p.status === "fulfilled" ? p.value : null);
     setInsightsLoading(false);
@@ -454,7 +495,14 @@ function GroupCard({
       });
       return;
     }
-    if (!window.confirm(isOwner ? "You're the only member. Leaving deletes this group. Continue?" : "Leave this group?")) return;
+    if (
+      !window.confirm(
+        isOwner
+          ? "You're the only member. Leaving deletes this group. Continue?"
+          : "Leave this group?",
+      )
+    )
+      return;
     void run(async () => {
       await leaveGroup(group.id);
       onGone(group.id);
@@ -462,7 +510,12 @@ function GroupCard({
   };
 
   const handleDelete = () => {
-    if (!window.confirm(`Delete “${group.name}” for everyone? Members keep their own copy of any plan, but the group is gone.`)) return;
+    if (
+      !window.confirm(
+        `Delete “${group.name}” for everyone? Members keep their own copy of any plan, but the group is gone.`,
+      )
+    )
+      return;
     void run(async () => {
       await deleteGroup(group.id);
       onGone(group.id);
@@ -489,7 +542,8 @@ function GroupCard({
   };
 
   const handleRegenerate = () => {
-    if (!window.confirm("Replace the invite code? The old code and link will stop working.")) return;
+    if (!window.confirm("Replace the invite code? The old code and link will stop working."))
+      return;
     void run(async () => {
       const code = await regenerateInviteCode(group.id);
       onUpdate({ ...group, inviteCode: code });
@@ -497,9 +551,11 @@ function GroupCard({
     }, "Couldn't create a new code.");
   };
 
-
   const handleDeletePlan = () => {
-    if (!window.confirm("Delete the group plan for ALL members? Their progress on it will be lost.")) return;
+    if (
+      !window.confirm("Delete the group plan for ALL members? Their progress on it will be lost.")
+    )
+      return;
     void run(async () => {
       await deleteGroupPlan(group.id);
       setGenWarnings([]);
@@ -526,12 +582,15 @@ function GroupCard({
               </span>
             )}
           </div>
-          {group.description && <p className="mt-0.5 text-xs text-muted-foreground">{group.description}</p>}
+          {group.description && (
+            <p className="mt-0.5 text-xs text-muted-foreground">{group.description}</p>
+          )}
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {group.branch && <span className="chip">{group.branch}</span>}
             {group.semester && <span className="chip">Sem {group.semester}</span>}
             <span className="chip">
-              <Users className="size-3" /> {group.memberCount} member{group.memberCount === 1 ? "" : "s"}
+              <Users className="size-3" /> {group.memberCount} member
+              {group.memberCount === 1 ? "" : "s"}
             </span>
           </div>
         </div>
@@ -578,7 +637,9 @@ function GroupCard({
                   {group.members && group.members.length > 0 ? (
                     <ul className="space-y-4">
                       {group.members.map((m) => {
-                        const subs = analytics?.memberSubjects.find((ms) => ms.userId === m.id)?.subjects ?? [];
+                        const subs =
+                          analytics?.memberSubjects.find((ms) => ms.userId === m.id)?.subjects ??
+                          [];
                         const canManage = isOwner && m.id !== userId;
                         return (
                           <li key={m.id} className="flex items-start gap-3">
@@ -588,13 +649,16 @@ function GroupCard({
                                 <p className="truncate text-sm font-medium text-foreground">
                                   {m.name}
                                   {m.id === userId && (
-                                    <span className="ml-1 text-xs font-normal text-muted-foreground">(you)</span>
+                                    <span className="ml-1 text-xs font-normal text-muted-foreground">
+                                      (you)
+                                    </span>
                                   )}
                                 </p>
                                 <span
                                   className={cn(
                                     "chip shrink-0",
-                                    m.role === "OWNER" && "border-primary/30 bg-primary/10 text-primary",
+                                    m.role === "OWNER" &&
+                                      "border-primary/30 bg-primary/10 text-primary",
                                   )}
                                 >
                                   {m.role}
@@ -603,7 +667,11 @@ function GroupCard({
                               {subs.length > 0 && (
                                 <div className="flex flex-wrap gap-1">
                                   {subs.map((s) => (
-                                    <span key={s.id} style={toneStyle(s.id)} className="chip chip-tone">
+                                    <span
+                                      key={s.id}
+                                      style={toneStyle(s.id)}
+                                      className="chip chip-tone"
+                                    >
                                       {s.code}
                                     </span>
                                   ))}
@@ -640,7 +708,10 @@ function GroupCard({
                   <div className="flex flex-wrap items-center gap-1 pt-1">
                     <button
                       onClick={() =>
-                        void copyText(`${window.location.origin}/groups?join=${group.inviteCode}`, "Invite link copied")
+                        void copyText(
+                          `${window.location.origin}/groups?join=${group.inviteCode}`,
+                          "Invite link copied",
+                        )
                       }
                       className="btn btn-outline btn-sm"
                     >
@@ -648,10 +719,18 @@ function GroupCard({
                     </button>
                     {isOwner && (
                       <>
-                        <button onClick={handleRegenerate} disabled={busy} className="btn btn-ghost btn-sm">
+                        <button
+                          onClick={handleRegenerate}
+                          disabled={busy}
+                          className="btn btn-ghost btn-sm"
+                        >
                           <RefreshCw className="size-3.5" /> New code
                         </button>
-                        <button onClick={handleDelete} disabled={busy} className="btn btn-danger btn-sm">
+                        <button
+                          onClick={handleDelete}
+                          disabled={busy}
+                          className="btn btn-danger btn-sm"
+                        >
                           <Trash2 className="size-3.5" /> Delete group
                         </button>
                       </>
@@ -667,7 +746,9 @@ function GroupCard({
                       {analytics.weakTopics.map((t) => (
                         <li key={t.topic} className="space-y-1.5">
                           <div className="flex items-center justify-between gap-2 text-xs">
-                            <span className="max-w-[55%] truncate font-medium text-foreground">{t.topic}</span>
+                            <span className="max-w-[55%] truncate font-medium text-foreground">
+                              {t.topic}
+                            </span>
                             <span className="shrink-0 text-amber-700 dark:text-amber-400">
                               {t.strugglingCount} of {t.memberCount} struggling
                             </span>
@@ -699,7 +780,9 @@ function GroupCard({
                 <div className="space-y-4 p-5">
                   <div>
                     <PanelTitle icon={Trophy}>Group plan progress</PanelTitle>
-                    <p className="mt-1 text-sm font-medium text-foreground">{planRows[0]?.planTitle}</p>
+                    <p className="mt-1 text-sm font-medium text-foreground">
+                      {planRows[0]?.planTitle}
+                    </p>
                   </div>
                   <ul className="space-y-3">
                     {planRows.map((p, i) => (
@@ -717,7 +800,12 @@ function GroupCard({
                         </span>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-2 text-xs">
-                            <span className={cn("truncate font-medium", p.isMe ? "text-primary" : "text-foreground")}>
+                            <span
+                              className={cn(
+                                "truncate font-medium",
+                                p.isMe ? "text-primary" : "text-foreground",
+                              )}
+                            >
                               {p.name}
                               {p.isMe && " (you)"}
                             </span>
@@ -727,7 +815,10 @@ function GroupCard({
                           </div>
                           <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
                             <div
-                              className={cn("h-full rounded-full transition-all", p.isMe ? "bg-primary" : "bg-primary/60")}
+                              className={cn(
+                                "h-full rounded-full transition-all",
+                                p.isMe ? "bg-primary" : "bg-primary/60",
+                              )}
                               style={{ width: `${p.percentage}%` }}
                             />
                           </div>
@@ -746,7 +837,9 @@ function GroupCard({
                       <li key={w}>{w}</li>
                     ))}
                   </ul>
-                  <button onClick={() => setGenWarnings([])} className="mt-1.5 underline">Dismiss</button>
+                  <button onClick={() => setGenWarnings([])} className="mt-1.5 underline">
+                    Dismiss
+                  </button>
                 </div>
               )}
 
@@ -758,7 +851,11 @@ function GroupCard({
                       <p className="text-xs text-muted-foreground">
                         This group has an active plan. Delete it to generate a new one.
                       </p>
-                      <button onClick={handleDeletePlan} disabled={busy} className="btn btn-danger btn-sm">
+                      <button
+                        onClick={handleDeletePlan}
+                        disabled={busy}
+                        className="btn btn-danger btn-sm"
+                      >
                         <Trash2 className="size-3.5" /> Delete group plan
                       </button>
                     </div>
@@ -796,7 +893,6 @@ function GroupCard({
     </div>
   );
 }
-
 
 type PlanOptionSubject = ApiGroupPlanOptions["subjects"][number];
 
@@ -858,7 +954,9 @@ function GroupPlanWizard({
         ...(n !== undefined ? { totalDays: n } : {}),
         hoursPerDay: Math.min(12, Math.max(1, Number(hours) || 4)),
         ...(datedSubjects.length > 0
-          ? { subjectExams: datedSubjects.map((s) => ({ subjectId: s.id, date: examDates[s.id]! })) }
+          ? {
+              subjectExams: datedSubjects.map((s) => ({ subjectId: s.id, date: examDates[s.id]! })),
+            }
           : {}),
         ...(excluded.size > 0 ? { excludedUnitIds: [...excluded] } : {}),
       });
@@ -877,7 +975,9 @@ function GroupPlanWizard({
     return (
       <div className="space-y-2">
         <p className="text-xs text-destructive">{loadError}</p>
-        <button onClick={onCancel} className={backBtn}>Close</button>
+        <button onClick={onCancel} className={backBtn}>
+          Close
+        </button>
       </div>
     );
   }
@@ -896,11 +996,17 @@ function GroupPlanWizard({
     <div className="space-y-5">
       <ol className="flex items-center gap-2" aria-label="Plan steps">
         {STEPS.map((s, i) => (
-          <li key={s.key} className="flex items-center gap-2" aria-current={i === stepIndex ? "step" : undefined}>
+          <li
+            key={s.key}
+            className="flex items-center gap-2"
+            aria-current={i === stepIndex ? "step" : undefined}
+          >
             <span
               className={cn(
                 "flex size-6 items-center justify-center rounded-full text-[11px] font-semibold",
-                i <= stepIndex ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+                i <= stepIndex
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground",
               )}
             >
               {i < stepIndex ? <Check className="size-3" /> : i + 1}
@@ -923,18 +1029,23 @@ function GroupPlanWizard({
           <p className="text-sm font-semibold text-foreground">Step 1 — Exam dates</p>
           {subjects.length > 0 ? (
             <p className="text-xs text-muted-foreground">
-              Set an exam date for each shared subject you want in the plan. Leave all empty to include every
-              shared subject without dates. The plan also adds focus days for the group's weak topics.
+              Set an exam date for each shared subject you want in the plan. Leave all empty to
+              include every shared subject without dates. The plan also adds focus days for the
+              group's weak topics.
             </p>
           ) : (
             <p className="text-xs text-muted-foreground">
-              No subjects are shared by 2+ members yet, so the plan will be built from weak topics only. Members
-              can add subjects in their profile.
+              No subjects are shared by 2+ members yet, so the plan will be built from weak topics
+              only. Members can add subjects in their profile.
             </p>
           )}
           <div className="card divide-y divide-border">
             {subjects.map((s) => (
-              <div key={s.id} style={toneStyle(s.id)} className="tone-accent-l flex items-center gap-3 px-4 py-2.5">
+              <div
+                key={s.id}
+                style={toneStyle(s.id)}
+                className="tone-accent-l flex items-center gap-3 px-4 py-2.5"
+              >
                 <span className="min-w-0 flex-1 truncate text-xs text-foreground">
                   <span className="chip chip-tone mr-2">{s.code}</span>
                   {s.name}
@@ -951,8 +1062,12 @@ function GroupPlanWizard({
             ))}
           </div>
           <div className="flex gap-2">
-            <button onClick={() => setStep("configure")} className={primaryBtn}>Continue →</button>
-            <button onClick={onCancel} className={backBtn}>Cancel</button>
+            <button onClick={() => setStep("configure")} className={primaryBtn}>
+              Continue →
+            </button>
+            <button onClick={onCancel} className={backBtn}>
+              Cancel
+            </button>
           </div>
         </>
       )}
@@ -962,7 +1077,9 @@ function GroupPlanWizard({
           <p className="text-sm font-semibold text-foreground">Step 2 — Configure the plan</p>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
-              <label htmlFor={`t-${groupId}`} className="field-label">Plan title</label>
+              <label htmlFor={`t-${groupId}`} className="field-label">
+                Plan title
+              </label>
               <input
                 id={`t-${groupId}`}
                 className="field"
@@ -972,7 +1089,9 @@ function GroupPlanWizard({
               />
             </div>
             <div>
-              <label htmlFor={`h-${groupId}`} className="field-label">Study hours per day</label>
+              <label htmlFor={`h-${groupId}`} className="field-label">
+                Study hours per day
+              </label>
               <input
                 id={`h-${groupId}`}
                 type="number"
@@ -985,7 +1104,9 @@ function GroupPlanWizard({
               />
             </div>
             <div>
-              <label htmlFor={`d-${groupId}`} className="field-label">Study days (1–60)</label>
+              <label htmlFor={`d-${groupId}`} className="field-label">
+                Study days (1–60)
+              </label>
               <input
                 id={`d-${groupId}`}
                 type="number"
@@ -999,7 +1120,8 @@ function GroupPlanWizard({
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            Leave "Study days" empty to plan up to the last exam (30 days if there are no exam dates).
+            Leave "Study days" empty to plan up to the last exam (30 days if there are no exam
+            dates).
           </p>
           {error && <p className="text-xs text-destructive">{error}</p>}
           <div className="flex gap-2">
@@ -1012,7 +1134,9 @@ function GroupPlanWizard({
             >
               Select Units →
             </button>
-            <button onClick={() => setStep("exams")} className={backBtn}>← Back</button>
+            <button onClick={() => setStep("exams")} className={backBtn}>
+              ← Back
+            </button>
           </div>
         </>
       )}
@@ -1027,13 +1151,21 @@ function GroupPlanWizard({
           ) : (
             <>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs text-muted-foreground">Uncheck any units the group has covered or wants to skip.</p>
+                <p className="text-xs text-muted-foreground">
+                  Uncheck any units the group has covered or wants to skip.
+                </p>
                 <div className="flex gap-2 text-xs">
-                  <button onClick={() => setExcluded(new Set())} className="text-primary hover:underline">
+                  <button
+                    onClick={() => setExcluded(new Set())}
+                    className="text-primary hover:underline"
+                  >
                     Select all
                   </button>
                   <span className="text-muted-foreground">·</span>
-                  <button onClick={() => setExcluded(new Set(allUnitIds))} className="text-primary hover:underline">
+                  <button
+                    onClick={() => setExcluded(new Set(allUnitIds))}
+                    className="text-primary hover:underline"
+                  >
                     Deselect all
                   </button>
                 </div>
@@ -1062,7 +1194,8 @@ function GroupPlanWizard({
                           />
                           <span className="tone-text text-xs font-semibold">{s.name}</span>
                           <span className="tone-text ml-auto text-[11px]">
-                            {s.units.filter((u) => !excluded.has(u.id)).length}/{s.units.length} units
+                            {s.units.filter((u) => !excluded.has(u.id)).length}/{s.units.length}{" "}
+                            units
                           </span>
                         </label>
                         <div className="divide-y divide-border">
@@ -1090,7 +1223,9 @@ function GroupPlanWizard({
                                   <p
                                     className={cn(
                                       "text-xs font-medium",
-                                      checked ? "text-foreground" : "text-muted-foreground line-through",
+                                      checked
+                                        ? "text-foreground"
+                                        : "text-muted-foreground line-through",
                                     )}
                                   >
                                     Unit {u.unitNumber}: {u.title.replace(/^Unit \d+:?\s*/i, "")}
@@ -1100,9 +1235,7 @@ function GroupPlanWizard({
                                     {u.topics.length > 4 && ` +${u.topics.length - 4} more`}
                                   </p>
                                 </div>
-                                {u.hours ? (
-                                  <span className="chip shrink-0">{u.hours}h</span>
-                                ) : null}
+                                {u.hours ? <span className="chip shrink-0">{u.hours}h</span> : null}
                               </label>
                             );
                           })}
@@ -1115,8 +1248,16 @@ function GroupPlanWizard({
           )}
           {error && <p className="text-xs text-destructive">{error}</p>}
           <div className="flex gap-2">
-            <button onClick={() => void handleGenerate()} disabled={generating} className={primaryBtn}>
-              {generating ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
+            <button
+              onClick={() => void handleGenerate()}
+              disabled={generating}
+              className={primaryBtn}
+            >
+              {generating ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : (
+                <Sparkles className="size-3" />
+              )}
               Generate Plan
             </button>
             <button onClick={() => setStep("configure")} disabled={generating} className={backBtn}>

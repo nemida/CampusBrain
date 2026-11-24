@@ -1,5 +1,5 @@
 import { Search, Sparkles, LogOut, Menu, X, Brain } from "lucide-react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useAuthStore } from "@/lib/auth";
 
@@ -57,6 +57,13 @@ export function Header({
   botUrl,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const navigate = useNavigate();
+  const submitSearch = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Enter" || !query.trim()) return;
+    event.preventDefault();
+    setMenuOpen(false);
+    void navigate({ to: "/dashboard", search: { q: query.trim().slice(0, 200) } });
+  };
   const [scrolled, setScrolled] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const { user } = useAuthStore();
@@ -124,6 +131,7 @@ export function Header({
             type="search"
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
+            onKeyDown={submitSearch}
             placeholder="Search subjects…"
             aria-label="Search"
             className="field field-sm !h-9 !pl-9 !pr-9"
@@ -143,7 +151,6 @@ export function Header({
             <Sparkles className="size-3.5" />
             Ask AI
           </a>
-
           {isLoggedIn ? (
             <div className="hidden items-center gap-1.5 sm:flex">
               <Link
@@ -217,6 +224,7 @@ export function Header({
               type="search"
               value={query}
               onChange={(e) => onQueryChange(e.target.value)}
+              onKeyDown={submitSearch}
               placeholder="Search subjects…"
               aria-label="Search"
               className="h-10 w-full rounded-md border border-border bg-card pl-9 pr-3 text-sm outline-none focus:border-primary"

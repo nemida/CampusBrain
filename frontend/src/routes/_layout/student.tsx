@@ -160,7 +160,6 @@ function StudentDashboard() {
       {/* Header: greeting + streak */}
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-
           <h1 className="mt-1 text-3xl font-bold tracking-tight text-foreground">
             {firstName ? `Hi, ${firstName}` : "My Dashboard"}
           </h1>
@@ -168,8 +167,15 @@ function StudentDashboard() {
         </div>
         <div className="card flex items-center gap-4 px-4 py-2.5">
           <div className="flex items-center gap-1.5">
-            <Flame className={cn("size-4", data.streak.current > 0 ? "text-orange-500" : "text-muted-foreground")} />
-            <span className="font-display text-lg font-semibold text-foreground">{data.streak.current}d</span>
+            <Flame
+              className={cn(
+                "size-4",
+                data.streak.current > 0 ? "text-orange-500" : "text-muted-foreground",
+              )}
+            />
+            <span className="font-display text-lg font-semibold text-foreground">
+              {data.streak.current}d
+            </span>
           </div>
           <div className="flex items-center gap-1.5" aria-label="Activity in the last 7 days">
             {data.streak.week.map((d) => (
@@ -193,7 +199,9 @@ function StudentDashboard() {
       {data.needsOnboarding && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-accent p-5">
           <div>
-            <p className="text-sm font-semibold text-foreground">Pick your subjects to unlock your dashboard</p>
+            <p className="text-sm font-semibold text-foreground">
+              Pick your subjects to unlock your dashboard
+            </p>
             <p className="text-xs text-muted-foreground">
               Readiness scores and study plans are built from the subjects you enrol in.
             </p>
@@ -270,7 +278,9 @@ function StudentDashboard() {
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span className="font-medium text-foreground">
                     {s.subjectName}
-                    <span className="ml-1.5 text-xs font-normal text-muted-foreground">Sem {s.semester}</span>
+                    <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                      Sem {s.semester}
+                    </span>
                   </span>
                   <span className="flex items-center gap-3">
                     <span className="font-display text-sm font-semibold text-foreground">
@@ -293,8 +303,8 @@ function StudentDashboard() {
                 </div>
                 <p className="mt-1 text-[11px] text-muted-foreground">
                   Quiz {s.quizAverage === null ? "–" : `${s.quizAverage}%`} · Plan{" "}
-                  {s.planTotal > 0 ? `${s.planDone}/${s.planTotal} days` : "–"} · Papers {s.viewedPapers}/
-                  {s.totalPapers}
+                  {s.planTotal > 0 ? `${s.planDone}/${s.planTotal} days` : "–"} · Papers{" "}
+                  {s.viewedPapers}/{s.totalPapers}
                 </p>
               </li>
             ))}
@@ -384,9 +394,10 @@ function TodayCard({
       {day ? (
         <div className="mt-3">
           {/* On multi-subject days every line is prefixed with its subject, so the single-subject header would be misleading */}
-          {day.subject && !day.topics.some((t) => /^(Revision \(|Group focus: |[^[\]:]{1,20}: )/.test(t)) && (
-            <p className="text-sm font-semibold text-foreground">{day.subject.name}</p>
-          )}
+          {day.subject &&
+            !day.topics.some((t) => /^(Revision \(|Group focus: |[^[\]:]{1,20}: )/.test(t)) && (
+              <p className="text-sm font-semibold text-foreground">{day.subject.name}</p>
+            )}
           {day.topics.length > 0 ? (
             <ul className="mt-1.5 space-y-1">
               {day.topics.map((t) => (
@@ -397,16 +408,24 @@ function TodayCard({
                       day.isCompleted ? "bg-primary" : "bg-muted-foreground/50",
                     )}
                   />
-                  <span className={cn(day.isCompleted && "text-muted-foreground line-through")}>{t}</span>
+                  <span className={cn(day.isCompleted && "text-muted-foreground line-through")}>
+                    {t}
+                  </span>
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="mt-1 text-sm text-muted-foreground">Free study day. Revise anything you like.</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Free study day. Revise anything you like.
+            </p>
           )}
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <button onClick={onToggle} disabled={busy} className={day.isCompleted ? ghostBtn : primaryBtn}>
+            <button
+              onClick={onToggle}
+              disabled={busy}
+              className={day.isCompleted ? ghostBtn : primaryBtn}
+            >
               {day.isCompleted ? (
                 <>
                   <Undo2 className="size-3.5" /> Undo
@@ -446,7 +465,10 @@ function TodayCard({
           </span>
         </div>
         <div className="mt-2 h-2 w-full rounded-full bg-muted">
-          <div className="h-2 rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+          <div
+            className="h-2 rounded-full bg-primary transition-all"
+            style={{ width: `${pct}%` }}
+          />
         </div>
       </div>
     </div>
@@ -460,7 +482,6 @@ function ExamCard({ today }: { today: ApiDashboardData["today"] }) {
         <p className="text-sm text-muted-foreground">
           No exam date yet. Upload your timetable when you generate a plan to see a countdown.
         </p>
-
       </div>
     );
   }
@@ -468,7 +489,11 @@ function ExamCard({ today }: { today: ApiDashboardData["today"] }) {
   const { daysLeft, examDate, pace } = today.plan;
 
   if (daysLeft < 0) {
-    return <p className="text-sm text-muted-foreground">Your exam date has passed. Time for a new plan?</p>;
+    return (
+      <p className="text-sm text-muted-foreground">
+        Your exam date has passed. Time for a new plan?
+      </p>
+    );
   }
 
   return (
@@ -486,7 +511,11 @@ function ExamCard({ today }: { today: ApiDashboardData["today"] }) {
             : "bg-accent text-primary",
         )}
       >
-        {pace.status === "behind" ? "Behind plan" : pace.status === "ahead" ? "Ahead of plan" : "On track"}
+        {pace.status === "behind"
+          ? "Behind plan"
+          : pace.status === "ahead"
+            ? "Ahead of plan"
+            : "On track"}
       </span>
     </div>
   );
@@ -517,7 +546,10 @@ function PracticeCard({
   return (
     <ul className="divide-y divide-border">
       {practice.map((t) => (
-        <li key={t.topic} className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
+        <li
+          key={t.topic}
+          className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0"
+        >
           <div className="min-w-0">
             <p className="truncate text-sm font-medium text-foreground">{t.topic}</p>
             <p className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
@@ -531,7 +563,11 @@ function PracticeCard({
                     t.trend > 0 ? "text-primary" : "text-destructive",
                   )}
                 >
-                  {t.trend > 0 ? <TrendingUp className="size-3" /> : <TrendingDown className="size-3" />}
+                  {t.trend > 0 ? (
+                    <TrendingUp className="size-3" />
+                  ) : (
+                    <TrendingDown className="size-3" />
+                  )}
                   {t.trend > 0 ? "+" : ""}
                   {t.trend}
                 </span>

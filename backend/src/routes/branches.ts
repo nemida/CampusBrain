@@ -9,6 +9,7 @@ import { z } from "zod";
 import { Role, Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/requireAuth.js";
+import { lockRow } from "../lib/rowLocks.js";
 
 const router = Router();
 
@@ -74,7 +75,9 @@ router.post(
       ) {
         const target = (err.meta?.target as string[] | undefined)?.join(", ");
         const field = target?.includes("name") ? "name" : "code";
-        res.status(409).json({ error: `A branch with this ${field} already exists` });
+        res
+          .status(409)
+          .json({ error: `A branch with this ${field} already exists` });
         return;
       }
       next(err);
@@ -92,15 +95,25 @@ router.delete(
       const id = String(String(req.params["id"]));
 
       // Block deletion when subjects still exist — cascading would destroy them.
-      const count = await prisma.subject.count({ where: { branchId: id } });
+      const count = await prisma.$transaction(async (tx) => {
+        if (!(await lockRow(tx, "Branch", id))) return -1;
+        const count = await tx.subject.count({ where: { branchId: id } });
+        if (count === 0) await tx.branch.delete({ where: { id } });
+        return count;
+      });
+      if (count === -1) {
+        res.status(404).json({ error: "Branch not found" });
+        return;
+      }
       if (count > 0) {
         res
           .status(409)
-          .json({ error: `Cannot delete: ${count} subject(s) belong to this branch. Remove them first.` });
+          .json({
+            error: `Cannot delete: ${count} subject(s) belong to this branch. Remove them first.`,
+          });
         return;
       }
 
-      await prisma.branch.delete({ where: { id } });
       res.status(204).send();
     } catch (err) {
       if (

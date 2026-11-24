@@ -23,6 +23,10 @@ import { retrieveChunks } from "./retriever.js";
 import { chatComplete, extractJSON } from "./ai.js";
 import { searchTopicQuestions } from "./pyqSearch.js";
 import { analyzeSubject, buildMockPaper, type MockPaper } from "./mockPaper.js";
+import {
+  parseGeneratedCards,
+  parseGeneratedQuestions,
+} from "./studyGeneration.js";
 
 /** Rich output a tool hands straight to the student's UI (not through the model). */
 export type AgentArtifact = { kind: "mock_paper"; paper: MockPaper };
@@ -40,7 +44,8 @@ const ANSWER_QUESTION_CHARS = 600; // max question length forwarded to the LLM
 const clamp = (n: number, min: number, max: number) =>
   Math.min(Math.max(Math.trunc(Number.isFinite(n) ? n : min), min), max);
 
-const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(err));
+const errMsg = (err: unknown) =>
+  err instanceof Error ? err.message : String(err);
 
 /* ------------------------------------------------------------------ */
 /* Profile (pre-fetched into the system prompt)                        */
@@ -56,7 +61,9 @@ export async function fetchUserProfile(userId: string): Promise<string> {
           branch: { select: { name: true, code: true } },
           subjects: {
             include: {
-              subject: { select: { id: true, code: true, name: true, semester: true } },
+              subject: {
+                select: { id: true, code: true, name: true, semester: true },
+              },
             },
           },
         },
@@ -75,7 +82,9 @@ export async function fetchUserProfile(userId: string): Promise<string> {
       name: user?.name,
       year: profile.year,
       semester: profile.semester,
-      branch: profile.branch ? `${profile.branch.name} (${profile.branch.code})` : null,
+      branch: profile.branch
+        ? `${profile.branch.name} (${profile.branch.code})`
+        : null,
       subjects: profile.subjects.map((s) => ({
         id: s.subject.id,
         code: s.subject.code,
@@ -93,7 +102,10 @@ export async function fetchUserProfile(userId: string): Promise<string> {
 /* ------------------------------------------------------------------ */
 
 /** Build the tool set for a specific user (userId is baked into closures). */
-export function buildAgentTools(userId: string, onArtifact?: (artifact: AgentArtifact) => void) {
+export function buildAgentTools(
+  userId: string,
+  onArtifact?: (artifact: AgentArtifact) => void,
+) {
   // ── search_papers ───────────────────────────────────────────────────────────
   const searchPapers = tool(
     async ({ topic, subjectId }) => {
@@ -134,10 +146,17 @@ export function buildAgentTools(userId: string, onArtifact?: (artifact: AgentArt
     async ({ topics: rawTopics, subjectId }) => {
       try {
         // Models sometimes exceed limits or send near-duplicates: dedupe and clamp.
-        const topics = [...new Set(rawTopics.map((t) => t.trim()).filter(Boolean))].slice(0, MAX_TOPICS);
-        if (topics.length === 0) return "No topics provided. Pass at least one topic.";
+        const topics = [
+          ...new Set(rawTopics.map((t) => t.trim()).filter(Boolean)),
+        ].slice(0, MAX_TOPICS);
+        if (topics.length === 0)
+          return "No topics provided. Pass at least one topic.";
 
-        const { results } = await searchTopicQuestions(topics, subjectId, QUESTIONS_PER_TOPIC);
+        const { results } = await searchTopicQuestions(
+          topics,
+          subjectId,
+          QUESTIONS_PER_TOPIC,
+        );
         if (results.every((r) => r.groups.length === 0)) {
           return "No past exam questions found for these topics. Papers may not be ingested yet.";
         }
@@ -151,7 +170,10 @@ export function buildAgentTools(userId: string, onArtifact?: (artifact: AgentArt
               // every paper it appeared in: repeats across years show how likely it is to come again
               askedIn: g.appearances
                 .slice(0, 4)
-                .map((a) => `${a.paper.year} ${a.paper.examType}${a.label ? ` ${a.label}` : ""}`),
+                .map(
+                  (a) =>
+                    `${a.paper.year} ${a.paper.examType}${a.label ? ` ${a.label}` : ""}`,
+                ),
               timesAsked: g.appearances.length,
             })),
           })),
@@ -164,7 +186,10 @@ export function buildAgentTools(userId: string, onArtifact?: (artifact: AgentArt
       name: "search_questions",
       description: `Find actual past exam questions by topic (semantic + keyword), de-duplicated, with the papers/years each appeared in. At most ${MAX_TOPICS} topics per call; prefer a few focused ones.`,
       schema: z.object({
-        topics: z.array(z.string()).min(1).describe(`Up to ${MAX_TOPICS} topics`),
+        topics: z
+          .array(z.string())
+          .min(1)
+          .describe(`Up to ${MAX_TOPICS} topics`),
         subjectId: z.string().optional().describe("Restrict to a subject ID"),
       }),
     },
@@ -206,7 +231,10 @@ export function buildAgentTools(userId: string, onArtifact?: (artifact: AgentArt
         "Rank a subject's syllabus topics by how often past papers ask about them (with years and marks). Use for 'most common / important / repeated topics' questions.",
       schema: z.object({
         subjectId: z.string().describe("Subject ID"),
-        limit: z.number().optional().describe("How many topics to return (default 8, max 15)"),
+        limit: z
+          .number()
+          .optional()
+          .describe("How many topics to return (default 8, max 15)"),
       }),
     },
   );
@@ -227,7 +255,10 @@ export function buildAgentTools(userId: string, onArtifact?: (artifact: AgentArt
         onArtifact?.({ kind: "mock_paper", paper: built.paper });
         return JSON.stringify({
           message: `Built "${built.paper.title}" (${built.paper.totalMarks} marks, ${built.paper.durationMinutes} min). The student can preview it and download it as a PDF right below this chat message.`,
-          questions: built.paper.sections.reduce((n, s) => n + s.questions.length, 0),
+          questions: built.paper.sections.reduce(
+            (n, s) => n + s.questions.length,
+            0,
+          ),
           fromPastPapers: built.counts.pyq,
           variants: built.counts.variant,
           newQuestions: built.counts.new,
@@ -244,11 +275,16 @@ export function buildAgentTools(userId: string, onArtifact?: (artifact: AgentArt
         "Build an exam-style mock paper (sections A/B/C) covering the syllabus, weighted by unit hours and how often past papers ask each topic. Uses real past questions, AI variants of them, or both. The student gets a preview and a PDF download button; do NOT paste the paper into chat.",
       schema: z.object({
         subjectId: z.string().describe("Subject ID"),
-        totalMarks: z.number().optional().describe("Total marks (default 50, 10-100)"),
+        totalMarks: z
+          .number()
+          .optional()
+          .describe("Total marks (default 50, 10-100)"),
         mode: z
           .string()
           .optional()
-          .describe("'existing' = only real past questions, 'variants' = rewritten variants, 'mixed' (default) = both"),
+          .describe(
+            "'existing' = only real past questions, 'variants' = rewritten variants, 'mixed' (default) = both",
+          ),
         topics: z
           .array(z.string())
           .optional()
@@ -317,7 +353,8 @@ export function buildAgentTools(userId: string, onArtifact?: (artifact: AgentArt
     },
     {
       name: "get_mcq_history",
-      description: "Get the student's last 10 quiz results (topic, score) to find weak areas.",
+      description:
+        "Get the student's last 10 quiz results (topic, score) to find weak areas.",
       schema: z.object({}),
     },
   );
@@ -330,7 +367,9 @@ export function buildAgentTools(userId: string, onArtifact?: (artifact: AgentArt
 
         let subjectName = "General Studies";
         if (subjectId) {
-          const subject = await prisma.subject.findUnique({ where: { id: subjectId } });
+          const subject = await prisma.subject.findUnique({
+            where: { id: subjectId },
+          });
           if (subject) subjectName = subject.name;
         }
 
@@ -351,31 +390,18 @@ export function buildAgentTools(userId: string, onArtifact?: (artifact: AgentArt
 Return a JSON object: {"questions":[{"question":"","options":["","","",""],"correctIndex":0,"explanation":"","topic":""}]}`;
 
         const result = await chatComplete([{ role: "user", content: prompt }]);
-        if (!result) return "Failed to generate questions — the AI service is unavailable.";
+        if (!result)
+          return "Failed to generate questions — the AI service is unavailable.";
 
-        const parsed = extractJSON<{ questions?: unknown[] } | unknown[]>(result.content);
+        const parsed = extractJSON<{ questions?: unknown[] } | unknown[]>(
+          result.content,
+        );
         if (!parsed) return "Failed to parse the generated questions.";
 
-        const raw = Array.isArray(parsed) ? parsed : (parsed.questions ?? []);
-        const questions = raw
-          .filter(
-            (q): q is { question: string; options: string[]; correctIndex: number; explanation?: string; topic?: string } =>
-              q !== null &&
-              typeof q === "object" &&
-              typeof (q as Record<string, unknown>).question === "string" &&
-              Array.isArray((q as Record<string, unknown>).options) &&
-              ((q as Record<string, unknown>).options as unknown[]).length === 4,
-          )
-          .map((q) => ({
-            question: q.question,
-            options: q.options.map(String),
-            correctIndex: clamp(Number(q.correctIndex), 0, 3),
-            explanation: typeof q.explanation === "string" ? q.explanation : "",
-            topic: typeof q.topic === "string" && q.topic ? q.topic : topic,
-          }))
-          .slice(0, n);
+        const questions = parseGeneratedQuestions(parsed, topic, n);
 
-        if (questions.length === 0) return "Failed to generate valid questions.";
+        if (questions.length === 0)
+          return "Failed to generate valid questions.";
 
         const session = await prisma.mCQSession.create({
           data: {
@@ -411,8 +437,14 @@ Return a JSON object: {"questions":[{"question":"","options":["","","",""],"corr
       description: `Create a practice quiz (multiple-choice) on a topic that the student can take. Max ${MAX_MCQ} questions.`,
       schema: z.object({
         topic: z.string().describe("Quiz topic, e.g. 'binary trees'"),
-        subjectId: z.string().optional().describe("Subject ID to ground questions in real exam content"),
-        count: z.number().optional().describe(`Number of questions (default 5, max ${MAX_MCQ})`),
+        subjectId: z
+          .string()
+          .optional()
+          .describe("Subject ID to ground questions in real exam content"),
+        count: z
+          .number()
+          .optional()
+          .describe(`Number of questions (default 5, max ${MAX_MCQ})`),
       }),
     },
   );
@@ -425,7 +457,9 @@ Return a JSON object: {"questions":[{"question":"","options":["","","",""],"corr
 
         let subjectName: string | undefined;
         if (subjectId) {
-          const subject = await prisma.subject.findUnique({ where: { id: subjectId } });
+          const subject = await prisma.subject.findUnique({
+            where: { id: subjectId },
+          });
           subjectName = subject?.name;
         }
 
@@ -445,21 +479,15 @@ Return a JSON object: {"questions":[{"question":"","options":["","","",""],"corr
 Return a JSON object: {"cards":[{"front":"","back":""}]}`;
 
         const result = await chatComplete([{ role: "user", content: prompt }]);
-        if (!result) return "Failed to generate flashcards — the AI service is unavailable.";
+        if (!result)
+          return "Failed to generate flashcards — the AI service is unavailable.";
 
-        const parsed = extractJSON<{ cards?: unknown[] } | unknown[]>(result.content);
+        const parsed = extractJSON<{ cards?: unknown[] } | unknown[]>(
+          result.content,
+        );
         if (!parsed) return "Failed to parse the generated flashcards.";
 
-        const raw = Array.isArray(parsed) ? parsed : (parsed.cards ?? []);
-        const cards = raw
-          .filter(
-            (c): c is { front: string; back: string } =>
-              c !== null &&
-              typeof c === "object" &&
-              typeof (c as Record<string, unknown>).front === "string" &&
-              typeof (c as Record<string, unknown>).back === "string",
-          )
-          .slice(0, n);
+        const cards = parseGeneratedCards(parsed, n);
 
         if (cards.length === 0) return "Failed to generate valid flashcards.";
 
@@ -470,7 +498,9 @@ Return a JSON object: {"cards":[{"front":"","back":""}]}`;
             title,
             subjectId: subjectId ?? null,
             topic,
-            cards: { create: cards.map((c) => ({ front: c.front, back: c.back })) },
+            cards: {
+              create: cards.map((c) => ({ front: c.front, back: c.back })),
+            },
           },
         });
 
@@ -478,7 +508,8 @@ Return a JSON object: {"cards":[{"front":"","back":""}]}`;
           message: `Created a flashcard set "${title}" with ${cards.length} cards.`,
           setId: set.id,
           cardCount: cards.length,
-          location: "The student can review these flashcards in the Flashcards section (/flashcards).",
+          location:
+            "The student can review these flashcards in the Flashcards section (/flashcards).",
         });
       } catch (err) {
         return `Failed to create flashcards: ${errMsg(err)}`;
@@ -488,9 +519,17 @@ Return a JSON object: {"cards":[{"front":"","back":""}]}`;
       name: "generate_flashcards",
       description: `Create a flashcard set on a topic that the student can review. Max ${MAX_FLASHCARDS} cards.`,
       schema: z.object({
-        topic: z.string().describe("Flashcard topic, e.g. 'sorting algorithms'"),
-        subjectId: z.string().optional().describe("Subject ID to ground cards in real content"),
-        count: z.number().optional().describe(`Number of cards (default 8, max ${MAX_FLASHCARDS})`),
+        topic: z
+          .string()
+          .describe("Flashcard topic, e.g. 'sorting algorithms'"),
+        subjectId: z
+          .string()
+          .optional()
+          .describe("Subject ID to ground cards in real content"),
+        count: z
+          .number()
+          .optional()
+          .describe(`Number of cards (default 8, max ${MAX_FLASHCARDS})`),
       }),
     },
   );
@@ -563,7 +602,8 @@ Return a JSON object: {"cards":[{"front":"","back":""}]}`;
             },
           },
         });
-        if (!resource) return "Paper not found. Use list_papers to get valid paper IDs.";
+        if (!resource)
+          return "Paper not found. Use list_papers to get valid paper IDs.";
         if (resource.paperQuestions.length === 0) {
           return `The paper "${resource.title}" exists but has no extracted questions yet. It may still be processing.`;
         }
@@ -622,7 +662,9 @@ Return a JSON object: {"cards":[{"front":"","back":""}]}`;
               ? "This is a medium question (3–5 marks). Give a structured answer with key points, definitions, and a brief example if relevant."
               : "This is a long-answer question (6+ marks). Give a thorough answer with headings or numbered steps, definitions, derivations or examples as needed, and a brief conclusion.";
 
-        const extraHint = extraContext ? `\n\nAdditional context from the student: ${extraContext}` : "";
+        const extraHint = extraContext
+          ? `\n\nAdditional context from the student: ${extraContext}`
+          : "";
 
         const prompt = `You are an expert university exam tutor. Write a model answer for the following exam question.
 
@@ -634,7 +676,8 @@ ${depthHint}${extraHint}${ragContext}
 Format your answer clearly. Use bullet points or numbered steps where appropriate. Be precise and exam-ready. Do NOT copy-paste the excerpts verbatim — synthesise them into a clean answer.`;
 
         const result = await chatComplete([{ role: "user", content: prompt }]);
-        if (!result) return "Failed to generate an answer — the AI service is unavailable.";
+        if (!result)
+          return "Failed to generate an answer — the AI service is unavailable.";
 
         return JSON.stringify({
           question: questionSlice,
@@ -650,10 +693,23 @@ Format your answer clearly. Use bullet points or numbered steps where appropriat
       description:
         "Generate a model answer for a specific exam question. Grounded in real past-paper and syllabus content via RAG. Use this when the student asks to answer, solve, or explain a question. Pass the full question text and marks where known.",
       schema: z.object({
-        questionText: z.string().describe("Full text of the exam question to answer"),
-        marks: z.number().optional().describe("Marks allocated to the question (guides answer depth)"),
-        subjectId: z.string().optional().describe("Subject ID to pull relevant RAG context"),
-        context: z.string().optional().describe("Any extra context from the student (e.g. topic focus, what they tried)"),
+        questionText: z
+          .string()
+          .describe("Full text of the exam question to answer"),
+        marks: z
+          .number()
+          .optional()
+          .describe("Marks allocated to the question (guides answer depth)"),
+        subjectId: z
+          .string()
+          .optional()
+          .describe("Subject ID to pull relevant RAG context"),
+        context: z
+          .string()
+          .optional()
+          .describe(
+            "Any extra context from the student (e.g. topic focus, what they tried)",
+          ),
       }),
     },
   );

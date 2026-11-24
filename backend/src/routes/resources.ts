@@ -17,6 +17,7 @@ import { uploadFile, deleteFile } from "../lib/cloudinary.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { ingestResource } from "../lib/ingestion.js";
 import { retrieveChunks } from "../lib/retriever.js";
+import { detectUploadType } from "../lib/uploadValidation.js";
 
 const router = Router();
 
@@ -27,10 +28,16 @@ const upload = multer({
   fileFilter(_req, file, cb) {
     if (
       file.mimetype === "application/pdf" ||
-      file.mimetype.startsWith("image/")
+      ["image/png", "image/jpeg", "image/webp"].includes(file.mimetype)
     )
       cb(null, true);
-    else cb(new Error("Only PDF or image files are allowed"));
+    else
+      cb(
+        Object.assign(
+          new Error("Only PDF, PNG, JPEG or WebP files are allowed"),
+          { statusCode: 400 },
+        ),
+      );
   },
 });
 
@@ -128,10 +135,14 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
     const resources = await prisma.resource.findMany({
       where: {
         ...(query.subjectId ? { subjectId: query.subjectId } : {}),
-        ...(Object.keys(subjectFilter).length > 0 ? { subject: subjectFilter } : {}),
+        ...(Object.keys(subjectFilter).length > 0
+          ? { subject: subjectFilter }
+          : {}),
         ...(query.year ? { year: query.year } : {}),
         ...(dbExamType ? { examType: dbExamType } : {}),
-        ...(query.search ? { title: { contains: query.search, mode: "insensitive" } } : {}),
+        ...(query.search
+          ? { title: { contains: query.search, mode: "insensitive" } }
+          : {}),
       },
       orderBy: [{ year: "desc" }, { examType: "asc" }],
       include: {
@@ -157,59 +168,72 @@ const byTopicQuerySchema = z.object({
   topK: z.coerce.number().int().min(1).max(20).default(5),
 });
 
-router.get("/by-topic", async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const query = byTopicQuerySchema.parse(req.query);
+router.get(
+  "/by-topic",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const query = byTopicQuerySchema.parse(req.query);
 
-    // Retrieve relevant resource chunks via semantic search
-    const chunks = await retrieveChunks(query.topic, {
-      type: "resource",
-      subjectId: query.subjectId,
-      topK: query.topK * 3, // over-fetch chunks so we can deduplicate by resource
-    });
+      // Retrieve relevant resource chunks via semantic search
+      const chunks = await retrieveChunks(query.topic, {
+        type: "resource",
+        subjectId: query.subjectId,
+        topK: query.topK * 3, // over-fetch chunks so we can deduplicate by resource
+      });
 
-    if (chunks.length === 0) {
-      res.json({ resources: [], ragEnabled: false });
-      return;
-    }
-
-    // Deduplicate: keep the best (highest similarity) chunk per resource
-    const bestByResource = new Map<string, { resourceId: string; similarity: number }>();
-    for (const chunk of chunks) {
-      const existing = bestByResource.get(chunk.sourceId);
-      if (!existing || chunk.similarity > existing.similarity) {
-        bestByResource.set(chunk.sourceId, { resourceId: chunk.sourceId, similarity: chunk.similarity });
+      if (chunks.length === 0) {
+        res.json({ resources: [], ragEnabled: false });
+        return;
       }
+
+      // Deduplicate: keep the best (highest similarity) chunk per resource
+      const bestByResource = new Map<
+        string,
+        { resourceId: string; similarity: number }
+      >();
+      for (const chunk of chunks) {
+        const existing = bestByResource.get(chunk.sourceId);
+        if (!existing || chunk.similarity > existing.similarity) {
+          bestByResource.set(chunk.sourceId, {
+            resourceId: chunk.sourceId,
+            similarity: chunk.similarity,
+          });
+        }
+      }
+
+      // Sort by similarity and take topK unique resources
+      const topResourceIds = [...bestByResource.values()]
+        .sort((a, b) => b.similarity - a.similarity)
+        .slice(0, query.topK)
+        .map((r) => r.resourceId);
+
+      // Fetch full resource details from DB
+      const dbResources = await prisma.resource.findMany({
+        where: { id: { in: topResourceIds } },
+        include: {
+          subject: {
+            include: { branch: { select: { name: true, code: true } } },
+          },
+        },
+      });
+
+      // Preserve similarity ordering
+      const ordered = topResourceIds
+        .map((id) => dbResources.find((r) => r.id === id))
+        .filter((r): r is NonNullable<typeof r> => r !== undefined);
+
+      res.json({
+        resources: ordered.map((r) => ({
+          ...shapeResource(r),
+          similarityScore: bestByResource.get(r.id)?.similarity ?? 0,
+        })),
+        ragEnabled: true,
+      });
+    } catch (err) {
+      next(err);
     }
-
-    // Sort by similarity and take topK unique resources
-    const topResourceIds = [...bestByResource.values()]
-      .sort((a, b) => b.similarity - a.similarity)
-      .slice(0, query.topK)
-      .map((r) => r.resourceId);
-
-    // Fetch full resource details from DB
-    const dbResources = await prisma.resource.findMany({
-      where: { id: { in: topResourceIds } },
-      include: { subject: { include: { branch: { select: { name: true, code: true } } } } },
-    });
-
-    // Preserve similarity ordering
-    const ordered = topResourceIds
-      .map((id) => dbResources.find((r) => r.id === id))
-      .filter((r): r is NonNullable<typeof r> => r !== undefined);
-
-    res.json({
-      resources: ordered.map((r) => ({
-        ...shapeResource(r),
-        similarityScore: bestByResource.get(r.id)?.similarity ?? 0,
-      })),
-      ragEnabled: true,
-    });
-  } catch (err) {
-    next(err);
-  }
-});
+  },
+);
 
 // ── POST /api/resources ──────────────────────────────────────────────────────
 
@@ -231,19 +255,42 @@ router.post(
         return;
       }
 
+      const detectedType = detectUploadType(req.file.buffer);
+      if (!detectedType || detectedType !== req.file.mimetype) {
+        res
+          .status(400)
+          .json({
+            error: "File content must match its PDF, PNG, JPEG or WebP type",
+          });
+        return;
+      }
+
       const body = uploadBodySchema.parse(req.body);
       const dbExamType = frontendExamTypeToDb(body.examType);
 
       // Resolve subject
-      const subject = await prisma.subject.findFirst({
+      const matches = await prisma.subject.findMany({
         where: {
           code: body.subjectCode,
           ...(body.branch ? { branch: { name: body.branch } } : {}),
         },
         include: { branch: { select: { name: true, code: true } } },
+        take: 2,
       });
+      if (matches.length > 1) {
+        res
+          .status(400)
+          .json({
+            error:
+              "This subject code exists in multiple branches. Select a branch.",
+          });
+        return;
+      }
+      const subject = matches[0];
       if (!subject) {
-        res.status(404).json({ error: `Subject with code "${body.subjectCode}" not found` });
+        res
+          .status(404)
+          .json({ error: `Subject with code "${body.subjectCode}" not found` });
         return;
       }
 
@@ -259,26 +306,42 @@ router.post(
       const season = dbExamType === ExamType.MID_SEM ? "Summer" : "Winter";
       const title = `${season} ${body.year} ${dbExamTypeToFrontend(dbExamType)} Exam`;
 
-      const resource = await prisma.resource.create({
-        data: {
-          subjectId: subject.id,
-          uploadedById: req.user!.id,
-          title,
-          year: body.year,
-          examType: dbExamType,
-          fileUrl: cloudResult.secureUrl,
-          publicId: cloudResult.publicId,
-          fileSizeBytes: cloudResult.bytes,
-        },
-        include: {
-          subject: { include: { branch: { select: { name: true, code: true } } } },
-        },
-      });
+      const resource = await prisma.resource
+        .create({
+          data: {
+            subjectId: subject.id,
+            uploadedById: req.user!.id,
+            title,
+            year: body.year,
+            examType: dbExamType,
+            fileUrl: cloudResult.secureUrl,
+            publicId: cloudResult.publicId,
+            fileSizeBytes: cloudResult.bytes,
+          },
+          include: {
+            subject: {
+              include: { branch: { select: { name: true, code: true } } },
+            },
+          },
+        })
+        .catch(async (error: unknown) => {
+          // Compensate if the database write fails after the external upload succeeded.
+          await deleteFile(cloudResult.publicId, cloudResult.secureUrl).catch(
+            (cleanupError) =>
+              console.error(
+                "[Upload] Failed to clean up orphaned asset",
+                cleanupError,
+              ),
+          );
+          throw error;
+        });
 
       res.status(201).json({ resource: shapeResource(resource) });
 
       // Fire-and-forget RAG ingestion — runs in background, never blocks the response
-      ingestResource(resource.id, resource.fileUrl, resource.subjectId).catch(() => undefined);
+      ingestResource(resource.id, resource.fileUrl, resource.subjectId).catch(
+        () => undefined,
+      );
     } catch (err) {
       next(err);
     }
@@ -301,14 +364,19 @@ router.delete(
       }
 
       // TEACHERs can only delete their own uploads; ADMINs can delete anything
-      if (req.user!.role === Role.TEACHER && resource.uploadedById !== req.user!.id) {
+      if (
+        req.user!.role === Role.TEACHER &&
+        resource.uploadedById !== req.user!.id
+      ) {
         res.status(403).json({ error: "You can only delete your own uploads" });
         return;
       }
 
       // Delete from Cloudinary first — if this fails the DB row stays intact (safe)
       await deleteFile(resource.publicId, resource.fileUrl);
-      await prisma.resource.delete({ where: { id: String(String(req.params["id"])) } });
+      await prisma.resource.delete({
+        where: { id: String(String(req.params["id"])) },
+      });
 
       res.status(204).send();
     } catch (err) {

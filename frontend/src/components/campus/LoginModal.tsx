@@ -31,7 +31,15 @@ export function LoginModal({ open, onClose, onSuccess }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4 backdrop-blur-[2px]" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }} onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4 backdrop-blur-[2px]"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onClose();
+      }}
+    >
       <div
         role="dialog"
         aria-modal="true"
@@ -111,8 +119,6 @@ export function LoginModal({ open, onClose, onSuccess }: Props) {
             {loading && <Loader2 className="size-4 animate-spin" />}
             {loading ? "Signing in…" : "Sign In"}
           </button>
-
-
         </form>
       </div>
     </div>

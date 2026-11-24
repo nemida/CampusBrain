@@ -117,8 +117,6 @@ function overdueCount(plan: ApiStudyPlan): number {
   return plan.days.filter((d) => !d.isCompleted && d.date && istKey(d.date) < key).length;
 }
 
-
-
 /** One subject block inside a day, with its own checkbox. */
 function SessionRow({
   session,
@@ -147,11 +145,7 @@ function SessionRow({
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-xs font-medium text-foreground">{KIND_LABEL[session.kind]}</span>
-          {session.subjectCode && (
-            <span className="chip chip-tone">
-              {session.subjectCode}
-            </span>
-          )}
+          {session.subjectCode && <span className="chip chip-tone">{session.subjectCode}</span>}
           {session.minutes > 0 && (
             <span className="text-[11px] text-muted-foreground">{fmtMins(session.minutes)}</span>
           )}
@@ -177,9 +171,9 @@ function StudyPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   // Wizard state
-  const [step, setStep] = useState<"idle" | "upload" | "review" | "configure" | "units" | "generating">(
-    "idle",
-  );
+  const [step, setStep] = useState<
+    "idle" | "upload" | "review" | "configure" | "units" | "generating"
+  >("idle");
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -197,9 +191,9 @@ function StudyPage() {
   const [loadingUnits, setLoadingUnits] = useState(false);
 
   // Enrolled subjects for the exam date dropdown
-  const [enrolledSubjects, setEnrolledSubjects] = useState<{ id: string; name: string; code: string }[]>([]);
-
-
+  const [enrolledSubjects, setEnrolledSubjects] = useState<
+    { id: string; name: string; code: string }[]
+  >([]);
 
   useEffect(() => {
     if (!user) return;
@@ -215,10 +209,10 @@ function StudyPage() {
     if (step !== "upload" || enrolledSubjects.length > 0) return;
     fetchProfile()
       .then((p) => setEnrolledSubjects(p.subjects.map((s) => s.subject)))
-      .catch(() => { /* silently ignore — dropdown just won't appear */ });
-  }, [step]);
-
-
+      .catch(() => {
+        /* silently ignore — dropdown just won't appear */
+      });
+  }, [step, enrolledSubjects.length]);
 
   async function handleFileChange(file: File) {
     setPdfFile(file);
@@ -254,9 +248,10 @@ function StudyPage() {
       // Only show units for subjects the user actually assigned exam dates to.
       // Fall back to all enrolled subjects when no exams were specified.
       const validExams = editedExams.filter((e) => e.subjectName.trim() && e.date);
-      const examSubjectNames = validExams.length > 0
-        ? new Set(validExams.map((e) => e.subjectName.trim().toLowerCase()))
-        : null; // null = no filter, include all enrolled
+      const examSubjectNames =
+        validExams.length > 0
+          ? new Set(validExams.map((e) => e.subjectName.trim().toLowerCase()))
+          : null; // null = no filter, include all enrolled
 
       const syllabi = await fetchSyllabi({
         ...(profile.branchId ? { branchId: profile.branchId } : {}),
@@ -293,9 +288,10 @@ function StudyPage() {
         // no startDate: the server uses today in IST (toISOString() would give the UTC date)
         ...(planDays.trim() && days > 0 ? { totalDays: days } : {}),
         hoursPerDay: hours,
-        exams: editedExams.filter((e) => e.subjectName.trim() && e.date).length > 0
-          ? editedExams.filter((e) => e.subjectName.trim() && e.date)
-          : undefined,
+        exams:
+          editedExams.filter((e) => e.subjectName.trim() && e.date).length > 0
+            ? editedExams.filter((e) => e.subjectName.trim() && e.date)
+            : undefined,
         ...(excludedUnitIds.size > 0 ? { excludedUnitIds: [...excludedUnitIds] } : {}),
       });
       setPlans((p) => [res.plan, ...p]);
@@ -328,19 +324,19 @@ function StudyPage() {
         p.id !== plan.id
           ? p
           : {
-            ...p,
-            days: p.days.map((d) =>
-              d.id === dayId
-                ? {
-                  ...d,
-                  isCompleted: !current,
-                  sessions: d.sessions
-                    ? d.sessions.map((s) => ({ ...s, done: !current } as typeof s))
-                    : (d.sessions ?? null),
-                }
-                : d,
-            ),
-          },
+              ...p,
+              days: p.days.map((d) =>
+                d.id === dayId
+                  ? {
+                      ...d,
+                      isCompleted: !current,
+                      sessions: d.sessions
+                        ? d.sessions.map((s) => ({ ...s, done: !current }) as typeof s)
+                        : (d.sessions ?? null),
+                    }
+                  : d,
+              ),
+            },
       ),
     );
     try {
@@ -353,9 +349,9 @@ function StudyPage() {
           p.id !== plan.id
             ? p
             : {
-              ...p,
-              days: p.days.map((d) => (d.id === dayId ? { ...d, isCompleted: current } : d)),
-            },
+                ...p,
+                days: p.days.map((d) => (d.id === dayId ? { ...d, isCompleted: current } : d)),
+              },
         ),
       );
     }
@@ -373,7 +369,10 @@ function StudyPage() {
       prev.map((p) =>
         p.id !== plan.id
           ? p
-          : { ...p, days: p.days.map((d) => (d.id === day.id ? applySessionDone(d, index, done) : d)) },
+          : {
+              ...p,
+              days: p.days.map((d) => (d.id === day.id ? applySessionDone(d, index, done) : d)),
+            },
       ),
     );
     try {
@@ -424,10 +423,7 @@ function StudyPage() {
           <p className="mt-2 text-sm text-muted-foreground">
             Upload your exam timetable and get a day-by-day study schedule.
           </p>
-          <button
-            onClick={() => setLoginOpen(true)}
-            className="btn btn-primary mt-5 w-full"
-          >
+          <button onClick={() => setLoginOpen(true)} className="btn btn-primary mt-5 w-full">
             Sign In
           </button>
         </div>
@@ -444,7 +440,6 @@ function StudyPage() {
     <main className="mx-auto max-w-3xl space-y-8 px-4 py-10">
       <div className="flex items-start justify-between gap-4">
         <div>
-
           <h1 className="mt-1 text-3xl font-bold tracking-tight text-foreground">Study Plan</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Upload your exam timetable — we generate a day-by-day study schedule with specific
@@ -452,10 +447,7 @@ function StudyPage() {
           </p>
         </div>
         {step === "idle" && (
-          <button
-            onClick={() => setStep("upload")}
-            className="btn btn-primary shrink-0"
-          >
+          <button onClick={() => setStep("upload")} className="btn btn-primary shrink-0">
             <Sparkles className="size-4" />
             New Plan
           </button>
@@ -519,7 +511,9 @@ function StudyPage() {
                   >
                     {complete ? <Check className="size-3" /> : i + 1}
                   </span>
-                  <span className={active ? "text-foreground" : "text-muted-foreground"}>{label}</span>
+                  <span className={active ? "text-foreground" : "text-muted-foreground"}>
+                    {label}
+                  </span>
                   {i < arr.length - 1 && <span className="mx-1 h-px w-6 bg-border" />}
                 </li>
               );
@@ -530,9 +524,7 @@ function StudyPage() {
             <div className="p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-foreground">
-                  {step === "upload"
-                    ? "Upload exam timetable"
-                    : "Review extracted exams"}
+                  {step === "upload" ? "Upload exam timetable" : "Review extracted exams"}
                 </h2>
                 <button
                   onClick={() => {
@@ -595,10 +587,7 @@ function StudyPage() {
                     }}
                   />
                   <div className="flex justify-end">
-                    <button
-                      onClick={() => setStep("review")}
-                      className="btn btn-outline"
-                    >
+                    <button onClick={() => setStep("review")} className="btn btn-outline">
                       Skip — no PDF
                     </button>
                   </div>
@@ -640,7 +629,9 @@ function StudyPage() {
                               )
                             }
                           >
-                            <option value="" disabled>Select subject…</option>
+                            <option value="" disabled>
+                              Select subject…
+                            </option>
                             {enrolledSubjects.map((s) => (
                               <option key={s.id} value={s.name}>
                                 {s.code} — {s.name}
@@ -667,16 +658,12 @@ function StudyPage() {
                           value={exam.date}
                           onChange={(e) =>
                             setEditedExams((prev) =>
-                              prev.map((x, j) =>
-                                j === i ? { ...x, date: e.target.value } : x,
-                              ),
+                              prev.map((x, j) => (j === i ? { ...x, date: e.target.value } : x)),
                             )
                           }
                         />
                         <button
-                          onClick={() =>
-                            setEditedExams((prev) => prev.filter((_, j) => j !== i))
-                          }
+                          onClick={() => setEditedExams((prev) => prev.filter((_, j) => j !== i))}
                           className="btn btn-ghost btn-icon btn-sm hover:text-destructive"
                           aria-label="Remove exam"
                         >
@@ -697,16 +684,10 @@ function StudyPage() {
                   </button>
 
                   <div className="flex justify-between pt-2">
-                    <button
-                      onClick={() => setStep("upload")}
-                      className="btn btn-outline"
-                    >
+                    <button onClick={() => setStep("upload")} className="btn btn-outline">
                       ← Back
                     </button>
-                    <button
-                      onClick={() => setStep("configure")}
-                      className="btn btn-primary"
-                    >
+                    <button onClick={() => setStep("configure")} className="btn btn-primary">
                       Continue →
                     </button>
                   </div>
@@ -719,9 +700,7 @@ function StudyPage() {
           {step === "configure" && (
             <div className="p-6 space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-foreground">
-                  Configure your plan
-                </h2>
+                <h2 className="text-sm font-semibold text-foreground">Configure your plan</h2>
                 <button
                   onClick={() => setStep("idle")}
                   className="text-muted-foreground hover:text-foreground"
@@ -792,10 +771,7 @@ function StudyPage() {
                   )}
                   Select Units →
                 </button>
-                <button
-                  onClick={() => setStep("review")}
-                  className="btn btn-outline"
-                >
+                <button onClick={() => setStep("review")} className="btn btn-outline">
                   ← Back
                 </button>
               </div>
@@ -805,9 +781,7 @@ function StudyPage() {
           {step === "units" && (
             <div className="p-6 space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-foreground">
-                  Select units to study
-                </h2>
+                <h2 className="text-sm font-semibold text-foreground">Select units to study</h2>
                 <button
                   onClick={() => setStep("idle")}
                   className="text-muted-foreground hover:text-foreground"
@@ -818,7 +792,8 @@ function StudyPage() {
 
               {unitItems.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  No syllabus units found for your enrolled subjects. The plan will use all available topics.
+                  No syllabus units found for your enrolled subjects. The plan will use all
+                  available topics.
                 </p>
               ) : (
                 <>
@@ -845,104 +820,137 @@ function StudyPage() {
 
                   {/* Group items by subjectName */}
                   <div className="card-flat divide-y divide-border overflow-hidden">
-                  {(() => {
-                    const groups = new Map<string, typeof unitItems>();
-                    for (const item of unitItems) {
-                      const key = item.subjectName;
-                      if (!groups.has(key)) groups.set(key, []);
-                      groups.get(key)!.push(item);
-                    }
-                    return [...groups.entries()].map(([subjectName, items]) => {
-                      const allChecked = items.every((i) => !excludedUnitIds.has(i.id));
-                      const someChecked = items.some((i) => !excludedUnitIds.has(i.id));
-                      return (
-                        <div key={subjectName} style={toneStyle(items[0]?.subjectId ?? subjectName)}>
-                          {/* Subject header with toggle-all */}
+                    {(() => {
+                      const groups = new Map<string, typeof unitItems>();
+                      for (const item of unitItems) {
+                        const key = item.subjectName;
+                        if (!groups.has(key)) groups.set(key, []);
+                        groups.get(key)!.push(item);
+                      }
+                      return [...groups.entries()].map(([subjectName, items]) => {
+                        const allChecked = items.every((i) => !excludedUnitIds.has(i.id));
+                        const someChecked = items.some((i) => !excludedUnitIds.has(i.id));
+                        return (
                           <div
-                            className="tone-bg-soft tone-accent-l flex cursor-pointer select-none items-center gap-2 border-l-2 px-3 py-2"
-                            onClick={() => {
-                              setExcludedUnitIds((prev) => {
-                                const next = new Set(prev);
-                                if (allChecked) {
-                                  items.forEach((i) => next.add(i.id));
-                                } else {
-                                  items.forEach((i) => next.delete(i.id));
-                                }
-                                return next;
-                              });
-                            }}
+                            key={subjectName}
+                            style={toneStyle(items[0]?.subjectId ?? subjectName)}
                           >
-                            <div className={`size-4 rounded border flex items-center justify-center shrink-0 ${allChecked ? "bg-primary border-primary" : someChecked ? "bg-primary/30 border-primary/60" : "border-border"}`}>
-                              {(allChecked || someChecked) && (
-                                <svg className="size-2.5 text-white" viewBox="0 0 10 10" fill="none">
-                                  {allChecked
-                                    ? <path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                                    : <path d="M2 5h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                            {/* Subject header with toggle-all */}
+                            <div
+                              className="tone-bg-soft tone-accent-l flex cursor-pointer select-none items-center gap-2 border-l-2 px-3 py-2"
+                              onClick={() => {
+                                setExcludedUnitIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (allChecked) {
+                                    items.forEach((i) => next.add(i.id));
+                                  } else {
+                                    items.forEach((i) => next.delete(i.id));
                                   }
-                                </svg>
-                              )}
-                            </div>
-                            <span className="tone-text text-xs font-semibold">{subjectName}</span>
-                            <span className="ml-auto text-[11px] text-muted-foreground">
-                              {items.filter((i) => !excludedUnitIds.has(i.id)).length}/{items.length} units
-                            </span>
-                          </div>
-
-                          {/* Unit rows */}
-                          <div className="divide-y divide-border">
-                            {items.map((item) => {
-                              const checked = !excludedUnitIds.has(item.id);
-                              return (
-                                <label
-                                  key={item.id}
-                                  className="flex cursor-pointer items-start gap-3 px-3 py-2 hover:bg-muted/30"
-                                >
-                                  <div
-                                    className={`mt-0.5 size-4 rounded border flex items-center justify-center shrink-0 transition-colors ${checked ? "bg-primary border-primary" : "border-border"}`}
-                                    onClick={() => {
-                                      setExcludedUnitIds((prev) => {
-                                        const next = new Set(prev);
-                                        if (checked) next.add(item.id);
-                                        else next.delete(item.id);
-                                        return next;
-                                      });
-                                    }}
+                                  return next;
+                                });
+                              }}
+                            >
+                              <div
+                                className={`size-4 rounded border flex items-center justify-center shrink-0 ${allChecked ? "bg-primary border-primary" : someChecked ? "bg-primary/30 border-primary/60" : "border-border"}`}
+                              >
+                                {(allChecked || someChecked) && (
+                                  <svg
+                                    className="size-2.5 text-white"
+                                    viewBox="0 0 10 10"
+                                    fill="none"
                                   >
-                                    {checked && (
-                                      <svg className="size-2.5 text-white" viewBox="0 0 10 10" fill="none">
-                                        <path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                                      </svg>
+                                    {allChecked ? (
+                                      <path
+                                        d="M2 5l2.5 2.5L8 3"
+                                        stroke="currentColor"
+                                        strokeWidth="1.5"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      />
+                                    ) : (
+                                      <path
+                                        d="M2 5h6"
+                                        stroke="currentColor"
+                                        strokeWidth="1.5"
+                                        strokeLinecap="round"
+                                      />
                                     )}
-                                  </div>
-                                  <div className="min-w-0 flex-1">
-                                    <p className={`text-xs font-medium ${checked ? "text-foreground" : "text-muted-foreground line-through"}`}>
-                                      Unit {item.unitNumber}: {item.title.replace(/^Unit \d+:?\s*/i, "")}
-                                    </p>
-                                    <p className="mt-0.5 text-[11px] text-muted-foreground truncate">
-                                      {item.topics.slice(0, 4).join(" · ")}
-                                      {item.topics.length > 4 && ` +${item.topics.length - 4} more`}
-                                    </p>
-                                  </div>
-                                  {item.hours && (
-                                    <span className="chip chip-tone shrink-0">{item.hours}h</span>
-                                  )}
-                                </label>
-                              );
-                            })}
+                                  </svg>
+                                )}
+                              </div>
+                              <span className="tone-text text-xs font-semibold">{subjectName}</span>
+                              <span className="ml-auto text-[11px] text-muted-foreground">
+                                {items.filter((i) => !excludedUnitIds.has(i.id)).length}/
+                                {items.length} units
+                              </span>
+                            </div>
+
+                            {/* Unit rows */}
+                            <div className="divide-y divide-border">
+                              {items.map((item) => {
+                                const checked = !excludedUnitIds.has(item.id);
+                                return (
+                                  <label
+                                    key={item.id}
+                                    className="flex cursor-pointer items-start gap-3 px-3 py-2 hover:bg-muted/30"
+                                  >
+                                    <div
+                                      className={`mt-0.5 size-4 rounded border flex items-center justify-center shrink-0 transition-colors ${checked ? "bg-primary border-primary" : "border-border"}`}
+                                      onClick={() => {
+                                        setExcludedUnitIds((prev) => {
+                                          const next = new Set(prev);
+                                          if (checked) next.add(item.id);
+                                          else next.delete(item.id);
+                                          return next;
+                                        });
+                                      }}
+                                    >
+                                      {checked && (
+                                        <svg
+                                          className="size-2.5 text-white"
+                                          viewBox="0 0 10 10"
+                                          fill="none"
+                                        >
+                                          <path
+                                            d="M2 5l2.5 2.5L8 3"
+                                            stroke="currentColor"
+                                            strokeWidth="1.5"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                          />
+                                        </svg>
+                                      )}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <p
+                                        className={`text-xs font-medium ${checked ? "text-foreground" : "text-muted-foreground line-through"}`}
+                                      >
+                                        Unit {item.unitNumber}:{" "}
+                                        {item.title.replace(/^Unit \d+:?\s*/i, "")}
+                                      </p>
+                                      <p className="mt-0.5 text-[11px] text-muted-foreground truncate">
+                                        {item.topics.slice(0, 4).join(" · ")}
+                                        {item.topics.length > 4 &&
+                                          ` +${item.topics.length - 4} more`}
+                                      </p>
+                                    </div>
+                                    {item.hours && (
+                                      <span className="chip chip-tone shrink-0">{item.hours}h</span>
+                                    )}
+                                  </label>
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
-                      );
-                    });
-                  })()}
+                        );
+                      });
+                    })()}
                   </div>
                 </>
               )}
 
               <div className="flex gap-2 pt-1">
-                <button
-                  onClick={() => void handleGenerate()}
-                  className="btn btn-primary"
-                >
+                <button onClick={() => void handleGenerate()} className="btn btn-primary">
                   <Sparkles className="size-3.5" />
                   Generate Plan
                   {excludedUnitIds.size > 0 && (
@@ -951,10 +959,7 @@ function StudyPage() {
                     </span>
                   )}
                 </button>
-                <button
-                  onClick={() => setStep("configure")}
-                  className="btn btn-outline"
-                >
+                <button onClick={() => setStep("configure")} className="btn btn-outline">
                   ← Back
                 </button>
               </div>
@@ -1012,19 +1017,21 @@ function StudyPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-sm font-semibold text-foreground">{plan.title}</h3>
                       <span
-                        className={`chip ${plan.status === "PAUSED"
-                              ? "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                              : "chip-active"
-                          }`}
+                        className={`chip ${
+                          plan.status === "PAUSED"
+                            ? "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                            : "chip-active"
+                        }`}
                       >
                         {plan.status.charAt(0) + plan.status.slice(1).toLowerCase()}
                       </span>
                       {countdown && (
                         <span
-                          className={`chip ${countdown === "Today!"
+                          className={`chip ${
+                            countdown === "Today!"
                               ? "border-destructive/40 bg-destructive/10 text-destructive"
                               : ""
-                            }`}
+                          }`}
                         >
                           {countdown}
                         </span>
@@ -1049,8 +1056,8 @@ function StudyPage() {
                     {behind > 0 && (
                       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
                         <p className="text-xs text-amber-700 dark:text-amber-300">
-                          You're {behind} day{behind === 1 ? "" : "s"} behind. Re-plan from today and
-                          skip what you've finished.
+                          You're {behind} day{behind === 1 ? "" : "s"} behind. Re-plan from today
+                          and skip what you've finished.
                         </p>
                         <button
                           onClick={() => void handleCatchUp(plan)}
@@ -1174,9 +1181,7 @@ function StudyPage() {
                                       <SessionRow
                                         key={i}
                                         session={s}
-                                        subjectKey={
-                                          s.subjectId ?? s.subjectCode ?? ""
-                                        }
+                                        subjectKey={s.subjectId ?? s.subjectCode ?? ""}
                                         onToggle={() =>
                                           void handleToggleSession(plan, day, i, s.done !== true)
                                         }

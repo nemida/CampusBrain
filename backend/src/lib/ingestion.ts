@@ -14,7 +14,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma.js";
 import { embedTexts, vectorToSql } from "./embeddings.js";
-import { fetchPdf, hasUsableText } from "./pdfText.js";
+import { downloadDocument, fetchPdf, hasUsableText } from "./pdfText.js";
 import {
   extractFromPdf,
   persistExtraction,
@@ -65,7 +65,11 @@ function chunkText(
   if (pageTexts.length > 0) pageTexts.forEach((t, idx) => slide(t, idx + 1));
   else slide(fullText, null);
 
-  return sourceChunks.map((c, idx) => ({ text: c.text, pageNumber: c.page, chunkIndex: idx }));
+  return sourceChunks.map((c, idx) => ({
+    text: c.text,
+    pageNumber: c.page,
+    chunkIndex: idx,
+  }));
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -80,7 +84,9 @@ async function ingestChunks(
   try {
     const chunks = chunkText(fullText, pageTexts);
     if (chunks.length === 0) {
-      console.warn(`[Ingest] No text extracted from resource ${resourceId} (scanned PDF?)`);
+      console.warn(
+        `[Ingest] No text extracted from resource ${resourceId} (scanned PDF?)`,
+      );
       return { status: "no_text", total: 0, embedded: 0 };
     }
 
@@ -89,7 +95,8 @@ async function ingestChunks(
       chunks.map((c) => c.text),
       "document",
     );
-    if (!vectors) return { status: "no_key", total: chunks.length, embedded: 0 };
+    if (!vectors)
+      return { status: "no_key", total: chunks.length, embedded: 0 };
 
     // 2) Atomically replace the old chunks.
     await prisma.$transaction(
@@ -106,7 +113,9 @@ async function ingestChunks(
       { timeout: 60_000, maxWait: 10_000 },
     );
 
-    console.log(`[Ingest] Resource ${resourceId}: ${chunks.length}/${chunks.length} chunks embedded`);
+    console.log(
+      `[Ingest] Resource ${resourceId}: ${chunks.length}/${chunks.length} chunks embedded`,
+    );
     return { status: "ok", total: chunks.length, embedded: chunks.length };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -116,9 +125,13 @@ async function ingestChunks(
 }
 
 /** Text of questions already indexed for a paper (lets us skip paying for a second vision read). */
-async function loadIndexedQuestionText(resourceId: string): Promise<string | null> {
+async function loadIndexedQuestionText(
+  resourceId: string,
+): Promise<string | null> {
   try {
-    const rows = await prisma.$queryRaw<{ label: string | null; text: string }[]>(
+    const rows = await prisma.$queryRaw<
+      { label: string | null; text: string }[]
+    >(
       Prisma.sql`SELECT "label", "text" FROM "PaperQuestion" WHERE "resourceId" = ${resourceId} ORDER BY "questionIndex"`,
     );
     return rows.length > 0 ? questionsAsText(rows) : null;
@@ -167,9 +180,7 @@ export async function ingestResource(
   try {
     if (isImage) {
       // Images have no text layer — download raw bytes for the vision model (pdf-parse can't read them)
-      const response = await fetch(pdfUrl, { signal: AbortSignal.timeout(60_000) });
-      if (!response.ok) throw new Error(`Failed to download image: ${response.status} ${pdfUrl}`);
-      const buffer = Buffer.from(await response.arrayBuffer());
+      const buffer = await downloadDocument(pdfUrl);
       pdf = { buffer, text: "", pages: [] };
     } else {
       pdf = await fetchPdf(pdfUrl);
@@ -186,7 +197,10 @@ export async function ingestResource(
   let extraction: Extraction | null = null;
 
   try {
-    const r = await prisma.resource.findUnique({ where: { id: resourceId }, select: { type: true } });
+    const r = await prisma.resource.findUnique({
+      where: { id: resourceId },
+      select: { type: true },
+    });
     if (r?.type === "PAPER") {
       if (hasUsableText(pdf.text)) {
         extraction = await extractFromPdf(pdf, mimeType);
@@ -207,7 +221,8 @@ export async function ingestResource(
     // vision / extraction service failed: report it so a retry picks this paper up again
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[Ingest] Reading ${resourceId} failed:`, msg);
-    if (!hasUsableText(pdf.text)) return { status: "error", total: 0, embedded: 0, error: msg };
+    if (!hasUsableText(pdf.text))
+      return { status: "error", total: 0, embedded: 0, error: msg };
   }
 
   // never turn "-- 1 of 2 --" page markers into a chunk (only raw PDF text can be that kind of noise)
@@ -259,7 +274,9 @@ export async function ingestSyllabusItem(
       { timeout: 60_000, maxWait: 10_000 },
     );
 
-    console.log(`[Ingest] Syllabus item ${syllabusItemId}: ${texts.length} chunks embedded`);
+    console.log(
+      `[Ingest] Syllabus item ${syllabusItemId}: ${texts.length} chunks embedded`,
+    );
     return { status: "ok", total: texts.length, embedded: texts.length };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -270,7 +287,11 @@ export async function ingestSyllabusItem(
 
 // ── Backfill ──────────────────────────────────────────────────────────────────
 
-function tally(summary: BackfillSummary, id: string, r: IngestResult): "continue" | "stop" {
+function tally(
+  summary: BackfillSummary,
+  id: string,
+  r: IngestResult,
+): "continue" | "stop" {
   summary.attempted++;
   if (r.status === "ok") summary.ok++;
   else if (r.status === "no_text") summary.noText.push(id);
@@ -287,19 +308,30 @@ function tally(summary: BackfillSummary, id: string, r: IngestResult): "continue
  */
 export async function backfillSubjectResources(
   subjectId: string,
-  opts: { onlyMissing?: boolean | undefined; delayMs?: number | undefined } = {},
+  opts: {
+    onlyMissing?: boolean | undefined;
+    delayMs?: number | undefined;
+  } = {},
 ): Promise<BackfillSummary> {
   const resources = await prisma.resource.findMany({
     where: { subjectId, ...(opts.onlyMissing ? { chunks: { none: {} } } : {}) },
     select: { id: true, fileUrl: true, subjectId: true },
   });
-  console.log(`[Backfill] ${resources.length} resources for subject ${subjectId}`);
+  console.log(
+    `[Backfill] ${resources.length} resources for subject ${subjectId}`,
+  );
 
-  const summary: BackfillSummary = { attempted: 0, ok: 0, noText: [], failed: [] };
+  const summary: BackfillSummary = {
+    attempted: 0,
+    ok: 0,
+    noText: [],
+    failed: [],
+  };
   for (const r of resources) {
     const res = await ingestResource(r.id, r.fileUrl, r.subjectId);
     if (tally(summary, r.id, res) === "stop") break;
-    if (opts.delayMs && opts.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, opts.delayMs));
+    if (opts.delayMs && opts.delayMs > 0)
+      await new Promise((resolve) => setTimeout(resolve, opts.delayMs));
   }
   return summary;
 }
@@ -307,19 +339,38 @@ export async function backfillSubjectResources(
 /** Re-ingest syllabus items for a syllabus. */
 export async function backfillSyllabus(
   syllabusId: string,
-  opts: { onlyMissing?: boolean | undefined; delayMs?: number | undefined } = {},
+  opts: {
+    onlyMissing?: boolean | undefined;
+    delayMs?: number | undefined;
+  } = {},
 ): Promise<BackfillSummary> {
   const items = await prisma.syllabusItem.findMany({
-    where: { syllabusId, ...(opts.onlyMissing ? { chunks: { none: {} } } : {}) },
+    where: {
+      syllabusId,
+      ...(opts.onlyMissing ? { chunks: { none: {} } } : {}),
+    },
     select: { id: true, subjectId: true, title: true, topics: true },
   });
-  console.log(`[Backfill] ${items.length} syllabus items for syllabus ${syllabusId}`);
+  console.log(
+    `[Backfill] ${items.length} syllabus items for syllabus ${syllabusId}`,
+  );
 
-  const summary: BackfillSummary = { attempted: 0, ok: 0, noText: [], failed: [] };
+  const summary: BackfillSummary = {
+    attempted: 0,
+    ok: 0,
+    noText: [],
+    failed: [],
+  };
   for (const item of items) {
-    const res = await ingestSyllabusItem(item.id, item.subjectId, item.title, item.topics);
+    const res = await ingestSyllabusItem(
+      item.id,
+      item.subjectId,
+      item.title,
+      item.topics,
+    );
     if (tally(summary, item.id, res) === "stop") break;
-    if (opts.delayMs && opts.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, opts.delayMs));
+    if (opts.delayMs && opts.delayMs > 0)
+      await new Promise((resolve) => setTimeout(resolve, opts.delayMs));
   }
   return summary;
 }

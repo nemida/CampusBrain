@@ -153,7 +153,6 @@ function SyllabusPage() {
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
           <div>
-
             <h1 className="mt-1 text-3xl font-bold tracking-tight text-foreground">Syllabus</h1>
             <p className="mt-2 max-w-xl text-sm text-muted-foreground">
               Every unit and topic for your branch. Tap a topic to see the past exam questions on
