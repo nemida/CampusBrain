@@ -32,6 +32,7 @@ import {
   type ApiSyllabusItem,
   type TextbookUnitResponse,
   type TextbookNote,
+  type TextbookNoteSection,
   type TextbookMaterial,
 } from "@/lib/api";
 
@@ -865,7 +866,10 @@ function UnitWorkspace({ unitId }: { unitId: string }) {
               <>
                 <h4 className="font-display text-lg font-semibold">{activeTopic}</h4>
                 {section ? (
-                  <NoteBody note={selectedNote!} topic={activeTopic} />
+                  <NoteBody
+                    key={JSON.stringify([selectedNote!.id, activeTopic])}
+                    section={section}
+                  />
                 ) : (
                   <div className="rounded-xl bg-muted/50 p-4 text-sm text-muted-foreground">
                     No saved notes for this topic yet. Select a ready textbook PDF and this topic
@@ -915,9 +919,36 @@ function UnitWorkspace({ unitId }: { unitId: string }) {
   );
 }
 
-function NoteBody({ note, topic }: { note: TextbookNote; topic: string }) {
-  const section = note.content.sections.find((entry) => entry.topic === topic);
-  if (!section || section.status === "insufficient")
+type NoteCitation = TextbookNoteSection["blocks"][number]["citations"][number];
+
+function sourcePageUrl(citation: NoteCitation) {
+  return `${citation.fileUrl.split("#")[0]}#page=${citation.pageNumber}`;
+}
+
+function NoteBody({ section }: { section: TextbookNoteSection }) {
+  const [source, setSource] = useState<NoteCitation | null>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const previewUrl = source && sourcePageUrl(source);
+  useEffect(() => {
+    if (previewUrl) previewRef.current?.scrollIntoView({ block: "start" });
+  }, [previewUrl]);
+  const citations = section.blocks.flatMap((block) => block.citations);
+  const pages = new Map(citations.map((citation) => [sourcePageUrl(citation), citation]));
+  const quotes = new Set(
+    citations
+      .filter((citation) => sourcePageUrl(citation) === previewUrl)
+      .map((citation) => citation.quote),
+  );
+
+  function openSource(citation: NoteCitation) {
+    if (sourcePageUrl(citation) === previewUrl) {
+      previewRef.current?.scrollIntoView({ block: "start" });
+      return;
+    }
+    setSource(citation);
+  }
+
+  if (section.status === "insufficient")
     return (
       <div className="flex items-start gap-2 rounded-xl bg-amber-500/10 p-4 text-sm">
         <AlertCircle className="mt-0.5 size-4 shrink-0 text-amber-600" />
@@ -935,34 +966,57 @@ function NoteBody({ note, topic }: { note: TextbookNote; topic: string }) {
         original.
       </p>
       {section.blocks.map((block, index) => (
-        <div key={index} className="space-y-2">
-          <p className="whitespace-pre-wrap break-words text-sm leading-7">{block.text}</p>
-          <div className="space-y-2">
-            {block.citations.map((citation, citationIndex) => (
-              <details
-                key={citationIndex}
-                className="rounded-lg border border-border px-3 py-2 text-xs"
-              >
-                <summary className="cursor-pointer text-primary">
-                  {citation.title} · PDF p. {citation.pageNumber}
-                  {citation.source === "scan" ? " · scanned text" : ""}
-                </summary>
-                <blockquote className="mt-2 whitespace-pre-wrap border-l-2 border-primary/30 pl-3 leading-relaxed text-muted-foreground">
-                  {citation.quote}
-                </blockquote>
-                <a
-                  className="mt-2 inline-flex items-center gap-1 font-medium text-primary hover:underline"
-                  href={`${citation.fileUrl.split("#")[0]}#page=${citation.pageNumber}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Check source page <ExternalLink className="size-3" />
-                </a>
-              </details>
-            ))}
-          </div>
-        </div>
+        <p key={index} className="whitespace-pre-wrap break-words text-sm leading-7">
+          {block.text}
+        </p>
       ))}
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Source pages for this topic">
+        {[...pages].map(([url, citation]) => (
+          <button
+            key={url}
+            type="button"
+            aria-pressed={previewUrl === url}
+            className="btn btn-outline btn-sm"
+            onClick={() => openSource(citation)}
+          >
+            <FileText className="size-3.5" />
+            {citation.title} · PDF p. {citation.pageNumber}
+          </button>
+        ))}
+      </div>
+      <div ref={previewRef} className="scroll-mt-32">
+        {source && previewUrl && (
+          <section className="space-y-3 rounded-xl border border-border p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h5 className="text-sm font-semibold">
+                {source.title} · PDF p. {source.pageNumber}
+              </h5>
+              <a
+                className="btn btn-outline btn-sm"
+                href={previewUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open PDF <ExternalLink className="size-3" />
+              </a>
+            </div>
+            <iframe
+              key={previewUrl}
+              src={previewUrl}
+              title={`${source.title}, PDF page ${source.pageNumber}`}
+              className="h-[60vh] min-h-80 w-full rounded-lg border border-border"
+            />
+            {[...quotes].map((quote) => (
+              <blockquote
+                key={quote}
+                className="whitespace-pre-wrap border-l-2 border-primary/30 pl-3 text-xs leading-relaxed text-muted-foreground"
+              >
+                {quote}
+              </blockquote>
+            ))}
+          </section>
+        )}
+      </div>
     </div>
   );
 }

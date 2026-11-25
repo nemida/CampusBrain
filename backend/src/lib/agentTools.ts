@@ -23,6 +23,7 @@ import { retrieveChunks } from "./retriever.js";
 import { chatComplete, extractJSON } from "./ai.js";
 import { searchTopicQuestions } from "./pyqSearch.js";
 import { analyzeSubject, buildMockPaper, type MockPaper } from "./mockPaper.js";
+import { noteIsStale, type NoteSection } from "./textbookNotes.js";
 import {
   parseGeneratedCards,
   parseGeneratedQuestions,
@@ -106,6 +107,83 @@ export function buildAgentTools(
   userId: string,
   onArtifact?: (artifact: AgentArtifact) => void,
 ) {
+  const searchTextbookNotes = tool(
+    async ({ topic, subjectId }) => {
+      const normalize = (value: string) =>
+        (value.normalize("NFKC").toLowerCase().match(/[\p{L}\p{N}+#]+/gu) ?? []).join(" ");
+      const query = normalize(topic);
+      if (!query) return JSON.stringify([]);
+      const terms = [...new Set(query.split(" "))];
+      const notes = await prisma.unitNote.findMany({
+        where: { userId, ...(subjectId ? { unit: { subjectId } } : {}) },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: 60,
+        select: {
+          title: true,
+          content: true,
+          inputs: true,
+          unit: {
+            select: {
+              id: true,
+              title: true,
+              updatedAt: true,
+              subject: { select: { name: true } },
+              textbookMaterials: { select: { id: true, status: true, updatedAt: true } },
+            },
+          },
+        },
+      });
+      const matches = notes.flatMap(({ title, content, inputs, unit }) => {
+        if (noteIsStale(inputs, unit, unit.textbookMaterials)) return [];
+        const { sections } = content as unknown as { sections?: NoteSection[] };
+        return (sections ?? []).flatMap((section) => {
+          if (section.status !== "covered") return [];
+          const name = normalize(section.topic);
+          const words = new Set(name.split(" "));
+          const overlap = terms.filter((term) => words.has(term)).length;
+          const score = name === query ? terms.length + 2 : overlap;
+          if (score < Math.min(2, terms.length) || overlap < Math.ceil(terms.length / 2))
+            return [];
+          return [{ title, unit, section, score }];
+        });
+      });
+      matches.sort((a, b) => b.score - a.score);
+      const seen = new Set<string>();
+      return JSON.stringify(
+        matches
+          .filter(({ unit, section }) => {
+            const key = JSON.stringify([unit.id, normalize(section.topic)]);
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+          .slice(0, 3)
+          .map(({ title, unit, section }) => ({
+            noteTitle: title,
+            subject: unit.subject?.name,
+            unit: unit.title,
+            topic: section.topic,
+            blocks: section.blocks.map((block) => ({
+              text: block.text,
+              sources: block.citations.map(({ title, pageNumber, fileUrl }) => ({
+                title,
+                pageNumber,
+                url: `${fileUrl.split("#")[0]}#page=${pageNumber}`,
+              })),
+            })),
+          })),
+      );
+    },
+    {
+      name: "search_textbook_notes",
+      description:
+        "Find relevant saved Textbook Notes owned by this student, with source PDF links and page numbers. Search by a short syllabus topic.",
+      schema: z.object({
+        topic: z.string().trim().min(1).max(200),
+        subjectId: z.string().optional(),
+      }),
+    },
+  );
   // ── search_papers ───────────────────────────────────────────────────────────
   const searchPapers = tool(
     async ({ topic, subjectId }) => {
@@ -715,6 +793,7 @@ Format your answer clearly. Use bullet points or numbered steps where appropriat
   );
 
   return [
+    searchTextbookNotes,
     searchPapers,
     searchQuestions,
     getCommonTopics,

@@ -60,6 +60,7 @@ type PaperItem = { kind: "paper"; paper: ApiMockPaper; turn: number };
 type ChatItem = { kind: "user"; content: string } | AgentItem | ToolItem | PaperItem;
 
 const TOOL_META: Record<string, { icon: typeof Search; label: string }> = {
+  search_textbook_notes: { icon: BookOpen, label: "Searching your textbook notes" },
   search_papers: { icon: Search, label: "Searching papers" },
   search_questions: { icon: HelpCircle, label: "Finding past questions" },
   get_common_topics: { icon: TrendingUp, label: "Analysing common topics" },
@@ -74,6 +75,7 @@ const TOOL_META: Record<string, { icon: typeof Search; label: string }> = {
 };
 
 const SUGGESTIONS = [
+  "Explain a topic using my saved textbook notes",
   "What are the most common topics in my past papers?",
   "Find past questions about binary trees",
   "Create a 50-mark mock paper for my first subject",
