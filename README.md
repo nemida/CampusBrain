@@ -32,12 +32,12 @@ CampusBrain brings course resources and study tools together. Students browse or
 | Paper library  | Public browsing by branch, semester and subject; original PDF or image downloads              |
 | Topic search   | Keyword, alias and vector retrieval of individual past questions with source papers and years |
 | Syllabus       | Course units and topics; a starting point for search and revision                             |
-| Textbook notes | Unit-wise PDFs, scanned-page transcription, syllabus-topic notes and verifiable page citations |
+| Textbook notes | Unit-wise PDFs, scanned-page transcription, syllabus-topic notes and inline PDF page previews |
 | Quizzes        | AI-generated questions, server-side scoring, explanations and attempt history                 |
 | Flashcards     | Manual or generated decks with SM-2 review scheduling                                         |
 | Study plans    | Daily time budgets, exam deadlines, session completion and catch-up planning                  |
 | Study groups   | Invite codes, shared plans and member progress                                                |
-| AI Coach       | Streaming conversations with tools for retrieval, practice and mock-paper generation          |
+| AI Coach       | Streaming chat with tools for saved textbook notes, past papers, practice and mock papers     |
 | Administration | Role-protected catalogue maintenance and resource uploads                                     |
 
 The original interface and visual design are retained, including the animated landing page, paper library, study tools and admin panel.
@@ -123,11 +123,11 @@ Open [localhost:3000](http://localhost:3000). If you choose another port, add th
 
 ### 3. Make the workspace yours
 
-1. Create a student account and sign in.
-2. Choose your branch, semester and enrolled subjects in **My subjects & profile**.
+1. Sign in as an admin, or set `STUDY_FEATURE_ACCESS=signed-in` in `backend/.env` and restart the API to use a student account.
+2. Choose your branch, semester and enrolled subjects in **Profile**.
 3. Explore papers and the syllabus.
 4. Generate a quiz, create a flashcard deck, or build a study plan.
-5. Use **Overview** to return to your progress.
+5. Use **My Dashboard** to return to your progress.
 
 ## Configuration
 
@@ -140,6 +140,7 @@ Open [localhost:3000](http://localhost:3000). If you choose another port, add th
 | `BOT_BASE_URL`                                                         | Required URL for the external Streamlit paper-chat integration              |
 | `FRONTEND_URL`                                                         | Primary allowed browser origin; default `http://localhost:3000`             |
 | `CORS_ORIGINS`                                                         | Comma-separated additional **exact origins**, including preview deployments |
+| `STUDY_FEATURE_ACCESS`                                                  | `admin` (default) or `signed-in`; see [roles and permissions](#roles-and-permissions) |
 | `GROQ_API_KEY`, `OPENAI_API_KEY`                                       | Optional quiz/flashcard generation keys; Groq is tried first                |
 | `GEMINI_API_KEY`                                                       | Optional embeddings, topic expansion, vision and agent provider key         |
 | `HUGGINGFACE_API_KEY`                                                  | Embeddings when Gemini is not configured                                    |
@@ -225,12 +226,15 @@ The full analysis and design report is included [below](#project-analysis-and-de
 
 ## Roles and permissions
 
-The API enforces roles independently of which controls the UI displays.
+Study features default to **admin-only**. This includes My Dashboard, Textbook Notes, Study Plan, Groups, PYQ Finder, Profile, MCQs, Flashcards and AI Coach. Set `STUDY_FEATURE_ACCESS=signed-in` in the backend environment and restart the API to open those features to all signed-in accounts. The frontend reads the mode from `GET /api/config/study-access` without a rebuild. The API enforces the same policy on feature requests.
+
+Public paper browsing and syllabus viewing are available in both modes. The **Admin** page and catalogue management require the Admin role in both modes.
 
 | Action | Student | Teacher | Admin |
 | --- | --- | --- | --- |
 | Browse the public catalogue and papers | Yes | Yes | Yes |
-| Use personal study tools and join/create groups | Yes | Yes | Yes |
+| Use personal study tools and join/create groups | `signed-in` mode only | `signed-in` mode only | Yes |
+| Upload textbook PDFs | No | `signed-in` mode only | Yes |
 | Upload resources | No | Yes | Yes |
 | Delete resources | No | Own uploads | Any upload |
 | Create syllabi and add, edit or delete their units | No | Yes | Yes |
@@ -249,14 +253,18 @@ Textbook notes connect a syllabus unit's reading material to its topics, real pa
 
 ### Start using it
 
-1. Apply the new additive migration in the backend with `npm run db:migrate:deploy`, then run `npm run db:generate` and restart the API. This feature's branch includes `20261125000000_textbook_notes`; merging code alone does not create its tables.
-2. Open **Syllabus → a unit → Textbook notes**, or choose **Textbook Notes** in the signed-in navigation and select a branch, semester, subject and unit.
+1. Apply the `20261125000000_textbook_notes` migration with `npm run db:migrate:deploy` in the backend, then run `npm run db:generate` and restart the API.
+2. Open **Syllabus → a unit → Textbook notes**, or choose **Textbook Notes** in the navigation and select a branch, semester, subject and unit. Access follows `STUDY_FEATURE_ACCESS`.
 3. A teacher or admin uploads one or more unit PDFs, giving each a book/chapter title. Each PDF may contain **1–60 pages**, up to **25 MB**. Split longer units into several PDFs; whole-book/chapter-range selection is not included.
-4. Wait for processing, then select up to ten ready PDFs and up to eight syllabus topics per notes set. Students can see materials; teachers manage their own uploads, and admins manage any upload.
-5. Choose **Generate and save notes**. Each explanatory block includes an expandable source excerpt and a link to its original PDF page. Insufficient evidence is shown explicitly rather than replaced by general model knowledge.
+4. Wait for processing, then select up to ten ready PDFs and up to eight syllabus topics per notes set. Teachers with access manage their own uploads. Admins can manage any upload.
+5. Choose **Generate and save notes**. Pick a source-page button to scroll to the shared PDF preview and open the cited page. Each page appears once per topic, with relevant excerpts below the preview. Use **Open PDF** if the browser cannot display the PDF inline. Topics with insufficient evidence show a coverage message.
 6. Choose a topic in the workspace to view its saved notes and real PYQs with years/source papers. MCQ and flashcard links open the existing practice tools with that topic and subject selected. These practice tools retain their existing generation behavior; they are not guaranteed to use only the selected textbook PDFs.
 
 The selector follows **branch → semester → subject → unit**. Subjects load only after both branch and semester are selected, units belong to the exact selected subject, and changing a parent clears its dependent selections. Course filters stay in the URL; links from the syllabus resolve their branch and semester automatically.
+
+### Use saved notes in AI Coach
+
+Ask AI Coach “Explain binary search using my saved textbook notes,” substituting your syllabus topic. The coach searches up to 60 of your most recent saved note sets, optionally narrowed by subject. It skips stale notes and can cite supporting PDF pages with clickable links.
 
 ### Source processing and retrieval
 
@@ -308,7 +316,7 @@ All paths below are prefixed with `/api/textbooks`:
 
 `backend/tests/textbooks.test.ts` covers permissions, unit/source isolation, saved-note ownership, coverage gaps, provider-output validation, stale-source detection, scanned/text page mapping and worker ownership. Providers and database writes are mocked; actual textbook accuracy and cloud upload/OCR integration must be checked when representative PDFs are available.
 
-Verification for this feature: **88 backend tests pass** (25 textbook checks plus the existing 63), backend/frontend type checks and lint pass, and both production builds pass. Browser checks with a temporary sample API verified saved-note feedback, expandable source-page references, coverage gaps, topic/subject handoffs to MCQs and flashcards, and a 390-pixel mobile viewport without horizontal overflow. The sample server and preview were removed after verification. The migration has not been applied to the configured database.
+Initial textbook notes verification covered 88 passing backend tests, both production builds and browser checks of the original citation controls. For the shared PDF preview and AI Coach note lookup, both TypeScript checks and a mocked lookup check passed. Live AI responses and inline PDF rendering still need staging verification.
 
 ## Architecture details
 
@@ -936,7 +944,7 @@ flowchart LR
 | Agent          | `routes/agent.ts`, `lib/agent.ts`, `lib/agentTools.ts`, `lib/mockPaper.ts`                                           | LangGraph ReAct agent streamed over SSE, with tools listed below.                                                                                                                                                                                                                                     |
 | Bot handoff    | `routes/bot.ts`                                                                                                      | Returns the external bot URL.                                                                                                                                                                                                                                                                         |
 
-**Agent tools:** `search_papers`, `search_questions`, `get_common_topics`, `build_mock_paper`, `get_syllabus`, `get_mcq_history`, `generate_mcq`, `generate_flashcards`, `list_papers`, `get_paper_questions`, `answer_question`.
+**Agent tools:** `search_textbook_notes`, `search_papers`, `search_questions`, `get_common_topics`, `build_mock_paper`, `get_syllabus`, `get_mcq_history`, `generate_mcq`, `generate_flashcards`, `list_papers`, `get_paper_questions`, `answer_question`.
 
 - `list_papers` — lists available past exam papers for a subject (ID, year, exam type, extracted question count). Used to navigate to a specific paper before fetching its questions.
 - `get_paper_questions` — fetches all extracted questions from a specific paper by ID. Returns question label, marks, and full text in order.
