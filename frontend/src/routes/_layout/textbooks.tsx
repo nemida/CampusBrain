@@ -35,7 +35,21 @@ import {
   type TextbookMaterial,
 } from "@/lib/api";
 
-type NemidaTextbookSearch = { branchId?: string; semester?: number; unitId?: string; subjectId?: string };
+type NemidaTextbookSearch = {
+  branchId?: string;
+  semester?: number;
+  unitId?: string;
+  subjectId?: string;
+};
+
+function savedNoteTopicPreview(note: TextbookNote): string {
+  const topics = note.content.sections.map((section) => section.topic);
+  const preview = topics
+    .slice(0, 2)
+    .map((topic) => (topic.length > 45 ? `${topic.slice(0, 45)}…` : topic))
+    .join(", ");
+  return `${preview || "No topics"}${topics.length > 2 ? ` +${topics.length - 2}` : ""}`;
+}
 
 export const Route = createFileRoute("/_layout/textbooks")({
   validateSearch: (search: Record<string, unknown>): NemidaTextbookSearch => ({
@@ -687,12 +701,39 @@ function UnitWorkspace({ unitId }: { unitId: string }) {
                 }}
               >
                 {data.notes.map((note) => (
-                  <option key={note.id} value={note.id}>
-                    {new Date(note.createdAt).toLocaleString()} · {note.content.sections.length}{" "}
-                    topics{note.stale ? " · Outdated" : ""}
+                  <option
+                    key={note.id}
+                    value={note.id}
+                    title={note.content.sections.map((section) => section.topic).join(", ")}
+                  >
+                    {savedNoteTopicPreview(note)} · {new Date(note.createdAt).toLocaleString()}
+                    {note.stale ? " · Outdated" : ""}
                   </option>
                 ))}
               </select>
+              {selectedNote && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-foreground">Topics in this set</p>
+                  <ul
+                    className="flex flex-wrap gap-1.5"
+                    aria-label="Topics in selected saved notes"
+                  >
+                    {selectedNote.content.sections.map((section) => (
+                      <li key={section.topic} className="min-w-0 max-w-full">
+                        <button
+                          type="button"
+                          onClick={() => setActiveTopic(section.topic)}
+                          aria-pressed={activeTopic === section.topic}
+                          className={`chip max-w-full whitespace-normal break-words text-left ${activeTopic === section.topic ? "chip-active" : ""}`}
+                        >
+                          {section.topic}
+                          {section.status === "insufficient" ? " · Insufficient sources" : ""}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <p className="text-xs text-muted-foreground">
                 Saved to your account. The latest 20 sets are shown.
               </p>
