@@ -93,7 +93,10 @@ function MCQPage() {
           code: ps.subject.code,
           name: ps.subject.name,
         }));
-        if (profileSubjects.length > 0) {
+        if (
+          profileSubjects.length > 0 &&
+          (!search.subjectId || profileSubjects.some((subject) => subject.id === search.subjectId))
+        ) {
           setSubjects(profileSubjects);
           return undefined;
         } else {
@@ -109,7 +112,7 @@ function MCQPage() {
           .then((s) => setSubjects(s.map((x) => ({ id: x.id, code: x.code, name: x.name }))))
           .catch(() => undefined);
       });
-  }, []);
+  }, [search.subjectId]);
 
   // Fetch existing quiz sessions so the student can resume agent-created quizzes
   useEffect(() => {

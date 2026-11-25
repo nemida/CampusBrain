@@ -1,4 +1,5 @@
 import { v2 as cloudinary, type UploadApiResponse } from "cloudinary";
+import { randomUUID } from "node:crypto";
 import { env } from "./env.js";
 
 cloudinary.config({
@@ -33,11 +34,14 @@ export async function uploadFile(
   filename: string,
   subjectCode: string,
   mimeType: string,
+  category: "papers" | "textbooks" = "papers",
 ): Promise<UploadResult> {
   return new Promise((resolve, reject) => {
     // Strip extension and sanitise for use as public_id
-    const baseName = filename.replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9_-]/g, "_");
-    const publicId = `campusbrain/papers/${subjectCode}/${baseName}_${Date.now()}`;
+    const baseName = filename
+      .replace(/\.[^.]+$/, "")
+      .replace(/[^a-zA-Z0-9_-]/g, "_");
+    const publicId = `campusbrain/${category}/${subjectCode}/${baseName}_${category === "textbooks" ? randomUUID() : Date.now()}`;
 
     const isImage = mimeType.startsWith("image/");
 
@@ -48,7 +52,11 @@ export async function uploadFile(
         resource_type: isImage ? "image" : "raw",
         // Only force the format for PDFs — let Cloudinary auto-detect image formats
         ...(isImage ? {} : { format: "pdf" }),
-        tags: ["campusbrain", "pyq", subjectCode.toLowerCase()],
+        tags: [
+          "campusbrain",
+          category === "papers" ? "pyq" : "textbook",
+          subjectCode.toLowerCase(),
+        ],
         // Allow any student with the URL to download — no signed URLs needed
         type: "upload",
         access_mode: "public",
@@ -75,7 +83,11 @@ export async function uploadFile(
  * Called when an admin deletes a paper row. The resource_type must match
  * what was used at upload time (image vs raw), so we detect it from the URL.
  */
-export async function deleteFile(publicId: string, fileUrl?: string): Promise<void> {
-  const resourceType = fileUrl && /\.(png|jpe?g|webp|gif)$/i.test(fileUrl) ? "image" : "raw";
+export async function deleteFile(
+  publicId: string,
+  fileUrl?: string,
+): Promise<void> {
+  const resourceType =
+    fileUrl && /\.(png|jpe?g|webp|gif)$/i.test(fileUrl) ? "image" : "raw";
   await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
 }

@@ -21,6 +21,12 @@ import {
 } from "@/lib/api";
 
 export const Route = createFileRoute("/_layout/flashcards")({
+  validateSearch: (search: Record<string, unknown>): { topic?: string; subjectId?: string } => ({
+    ...(typeof search["topic"] === "string" ? { topic: search["topic"].slice(0, 200) } : {}),
+    ...(typeof search["subjectId"] === "string"
+      ? { subjectId: search["subjectId"].slice(0, 100) }
+      : {}),
+  }),
   head: () => ({ meta: [{ title: "Flashcards — CampusBrain" }] }),
   component: FlashcardsPage,
 });
@@ -111,6 +117,7 @@ function FlipCard({
 }
 
 function FlashcardsPage() {
+  const search = Route.useSearch();
   const { user } = useAuthStore();
   const [loginOpen, setLoginOpen] = useState(false);
 
@@ -119,9 +126,9 @@ function FlashcardsPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Generate form
-  const [showGenerate, setShowGenerate] = useState(false);
-  const [genTopic, setGenTopic] = useState("");
-  const [genSubjectId, setGenSubjectId] = useState("");
+  const [showGenerate, setShowGenerate] = useState(!!search.topic);
+  const [genTopic, setGenTopic] = useState(search.topic ?? "");
+  const [genSubjectId, setGenSubjectId] = useState(search.subjectId ?? "");
   const [genCount, setGenCount] = useState(10);
   const [genLoading, setGenLoading] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
@@ -147,7 +154,10 @@ function FlashcardsPage() {
           code: ps.subject.code,
           name: ps.subject.name,
         }));
-        if (profileSubjects.length > 0) {
+        if (
+          profileSubjects.length > 0 &&
+          (!search.subjectId || profileSubjects.some((subject) => subject.id === search.subjectId))
+        ) {
           setSubjects(profileSubjects);
           return undefined;
         } else {
@@ -161,7 +171,7 @@ function FlashcardsPage() {
           .then((s) => setSubjects(s.map((x) => ({ id: x.id, code: x.code, name: x.name }))))
           .catch(() => undefined);
       });
-  }, [user]);
+  }, [user, search.subjectId]);
 
   function loadSets() {
     setError(null);

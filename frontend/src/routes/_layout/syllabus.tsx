@@ -1,5 +1,5 @@
 // frontend/src/routes/_layout/syllabus.tsx
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -786,6 +786,18 @@ function UnitRow({
             {item.title.replace(/^Unit \d+:?\s*/i, "")}
           </p>
           {item.hours ? <span className="chip">{item.hours} hrs</span> : null}
+          <Link
+            to="/textbooks"
+            search={{
+              unitId: item.id,
+              ...((subjectId ?? item.subjectId)
+                ? { subjectId: (subjectId ?? item.subjectId)! }
+                : {}),
+            }}
+            className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+          >
+            <BookOpen className="size-3.5" /> Textbook notes
+          </Link>
           {isEditor && !editing && (
             <span className="ml-auto flex items-center gap-0.5">
               <button

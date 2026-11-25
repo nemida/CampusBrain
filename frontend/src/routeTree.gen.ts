@@ -23,6 +23,7 @@ import { Route as LayoutRegisterRouteImport } from './routes/_layout/register'
 import { Route as LayoutStudentRouteImport } from './routes/_layout/student'
 import { Route as LayoutStudyRouteImport } from './routes/_layout/study'
 import { Route as LayoutSyllabusRouteImport } from './routes/_layout/syllabus'
+import { Route as LayoutTextbooksRouteImport } from './routes/_layout/textbooks'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -93,6 +94,11 @@ const LayoutSyllabusRoute = LayoutSyllabusRouteImport.update({
   path: '/syllabus',
   getParentRoute: () => LayoutRoute,
 } as any)
+const LayoutTextbooksRoute = LayoutTextbooksRouteImport.update({
+  id: '/textbooks',
+  path: '/textbooks',
+  getParentRoute: () => LayoutRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -108,6 +114,7 @@ export interface FileRoutesByFullPath {
   '/student': typeof LayoutStudentRoute
   '/study': typeof LayoutStudyRoute
   '/syllabus': typeof LayoutSyllabusRoute
+  '/textbooks': typeof LayoutTextbooksRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -123,6 +130,7 @@ export interface FileRoutesByTo {
   '/student': typeof LayoutStudentRoute
   '/study': typeof LayoutStudyRoute
   '/syllabus': typeof LayoutSyllabusRoute
+  '/textbooks': typeof LayoutTextbooksRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -140,6 +148,7 @@ export interface FileRoutesById {
   '/_layout/student': typeof LayoutStudentRoute
   '/_layout/study': typeof LayoutStudyRoute
   '/_layout/syllabus': typeof LayoutSyllabusRoute
+  '/_layout/textbooks': typeof LayoutTextbooksRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -157,6 +166,7 @@ export interface FileRouteTypes {
     | '/student'
     | '/study'
     | '/syllabus'
+    | '/textbooks'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -172,6 +182,7 @@ export interface FileRouteTypes {
     | '/student'
     | '/study'
     | '/syllabus'
+    | '/textbooks'
   id:
     | '__root__'
     | '/'
@@ -188,6 +199,7 @@ export interface FileRouteTypes {
     | '/_layout/student'
     | '/_layout/study'
     | '/_layout/syllabus'
+    | '/_layout/textbooks'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -296,6 +308,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutSyllabusRouteImport
       parentRoute: typeof LayoutRoute
     }
+    '/_layout/textbooks': {
+      id: '/_layout/textbooks'
+      path: '/textbooks'
+      fullPath: '/textbooks'
+      preLoaderRoute: typeof LayoutTextbooksRouteImport
+      parentRoute: typeof LayoutRoute
+    }
   }
 }
 
@@ -311,6 +330,7 @@ interface LayoutRouteChildren {
   LayoutStudentRoute: typeof LayoutStudentRoute
   LayoutStudyRoute: typeof LayoutStudyRoute
   LayoutSyllabusRoute: typeof LayoutSyllabusRoute
+  LayoutTextbooksRoute: typeof LayoutTextbooksRoute
 }
 
 const LayoutRouteChildren: LayoutRouteChildren = {
@@ -325,6 +345,7 @@ const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutStudentRoute: LayoutStudentRoute,
   LayoutStudyRoute: LayoutStudyRoute,
   LayoutSyllabusRoute: LayoutSyllabusRoute,
+  LayoutTextbooksRoute: LayoutTextbooksRoute,
 }
 
 const LayoutRouteWithChildren =

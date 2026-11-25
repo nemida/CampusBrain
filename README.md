@@ -17,6 +17,7 @@ CampusBrain brings course resources and study tools together. Students browse or
 - [Repository map](#repository-map)
 - [Current limitations](#current-limitations)
 - [Roles and permissions](#roles-and-permissions)
+- [Textbook notes: learn, check PYQs, practise](#textbook-notes-learn-check-pyqs-practise)
 - [Architecture details](#architecture-details)
 - [Deployment and operations guide](#deployment-and-operations-guide)
 - [Contributing](#contributing)
@@ -31,6 +32,7 @@ CampusBrain brings course resources and study tools together. Students browse or
 | Paper library  | Public browsing by branch, semester and subject; original PDF or image downloads              |
 | Topic search   | Keyword, alias and vector retrieval of individual past questions with source papers and years |
 | Syllabus       | Course units and topics; a starting point for search and revision                             |
+| Textbook notes | Unit-wise PDFs, scanned-page transcription, syllabus-topic notes and verifiable page citations |
 | Quizzes        | AI-generated questions, server-side scoring, explanations and attempt history                 |
 | Flashcards     | Manual or generated decks with SM-2 review scheduling                                         |
 | Study plans    | Daily time budgets, exam deadlines, session completion and catch-up planning                  |
@@ -240,6 +242,71 @@ Personal study records are scoped to their owner. Group actions depend on member
 
 Passwords are hashed with bcrypt. Refresh tokens can be revoked; changing a password alone does not invalidate existing access JWTs. With the default configuration, access tokens expire after 15 minutes. Keep all login details outside this document and source control.
 
+
+## Textbook notes: learn, check PYQs, practise
+
+Textbook notes connect a syllabus unit's reading material to its topics, real past questions, and revision tools. The upload is a **PDF of textbook pages for a particular unit**, not an exam paper. No textbook PDFs are bundled: teachers and admins add them later.
+
+### Start using it
+
+1. Apply the new additive migration in the backend with `npm run db:migrate:deploy`, then run `npm run db:generate` and restart the API. This feature's branch includes `20261125000000_textbook_notes`; merging code alone does not create its tables.
+2. Open **Syllabus → a unit → Textbook notes**, or choose **Textbook Notes** in the signed-in navigation and select a subject/unit.
+3. A teacher or admin uploads one or more unit PDFs, giving each a book/chapter title. Each PDF may contain **1–60 pages**, up to **25 MB**. Split longer units into several PDFs; whole-book/chapter-range selection is not included.
+4. Wait for processing, then select up to ten ready PDFs and up to eight syllabus topics per notes set. Students can see materials; teachers manage their own uploads, and admins manage any upload.
+5. Choose **Generate and save notes**. Each explanatory block includes an expandable source excerpt and a link to its original PDF page. Insufficient evidence is shown explicitly rather than replaced by general model knowledge.
+6. Choose a topic in the workspace to view its saved notes and real PYQs with years/source papers. MCQ and flashcard links open the existing practice tools with that topic and subject selected. These practice tools retain their existing generation behavior; they are not guaranteed to use only the selected textbook PDFs.
+
+### Source processing and retrieval
+
+```mermaid
+flowchart TD
+    Unit["Syllabus subject and unit"] --> PDF["Teacher/admin uploads unit textbook PDFs"]
+    PDF --> Queue["Persist pending job; claim with processing run ID"]
+    Queue --> Read["Extract text page by page"]
+    Read --> Scan{"Page has usable text?"}
+    Scan -->|Yes| Chunk["Page-bounded textbook chunks"]
+    Scan -->|No| OCR["Render page and transcribe with vision"]
+    OCR --> Chunk
+    OCR --> Gaps["Flag unreadable pages"]
+    Chunk --> Index["Separate textbook index; optional embeddings"]
+    Index --> Retrieve["Selected unit/PDFs: keyword and vector retrieval"]
+    Retrieve --> Notes["Generate syllabus-topic explanations"]
+    Notes --> Verify["Validate citation IDs and exact source excerpts"]
+    Verify --> Save["Save private notes with source versions"]
+    Save --> Learn["Topic workspace"]
+    Learn --> PYQ["Original PYQs from separate paper index"]
+    Learn --> Practice["Topic-prefilled MCQs and flashcards"]
+```
+
+Materials, textbook chunks and saved notes live in `TextbookMaterial`, `TextbookChunk` and `UnitNote`. They do not enter `ResourceChunk` or `PaperQuestion`, so explanatory text cannot be mistaken for a historical exam question. Ready materials are filtered by **unit ID and selected PDF IDs** for retrieval. Textbook vectors record their embedding model; incompatible model vectors are ignored in favor of text matches until reprocessing.
+
+The API runs one sequential textbook worker per process. Jobs persist in PostgreSQL, and workers atomically claim pending rows. A heartbeat and run ID prevent an obsolete worker from replacing a newer index. Queued jobs survive restarts; interrupted processing becomes retryable after a twenty-minute lease expires. Failed jobs need an explicit retry. This is a small database-backed worker, not an independently deployed queue service; graceful API shutdown can interrupt active OCR. PDFs have queued, processing, ready, failed and deleting states. Reprocessing retains the old chunks until the new index is atomically published, but excludes that material from note generation while processing.
+
+### Scans, citations and coverage
+
+- Text PDFs are extracted directly. Pages with little usable text are rendered individually for vision transcription, including mixed text/scanned PDFs. Scans need an available configured vision provider; note generation uses the existing Groq/OpenAI generation wrapper. Optional embeddings improve retrieval, with keyword matching available without them.
+- OCR preserves page position and labels scan-derived passages. Unreadable/blank/figure-only pages are omitted and listed in the material's warning. A provider failure marks processing failed with a retry action; the app does not silently report a partially processed file as ready.
+- Citation IDs and verbatim supporting excerpts are checked against retrieved passages. The server supplies titles, page numbers and URLs. This establishes **source provenance**, not a proof that every generated statement follows from its citation; review explanations, equations and OCR against the original pages.
+- PDF page numbers can differ from printed textbook page numbers. Diagrams are not reconstructed, and complex equations, tables and handwriting may need manual checking. A topic with some relevant passages is not guaranteed complete syllabus coverage.
+- Notes belong to the signed-in account. The latest twenty sets are listed. Changed syllabus units, reprocessed sources and removed PDFs mark saved notes outdated. Remove textbook PDFs before deleting their syllabus unit; a database restriction prevents files from being silently orphaned.
+- Original PDFs use the existing public Cloudinary delivery model: anyone with the file URL can open it. Upload material appropriate for that sharing model. Notes and upload-management endpoints require authentication, and expensive actions have per-user limits.
+
+### Textbook API and checks
+
+All paths below are prefixed with `/api/textbooks`:
+
+| Method and path | Behavior |
+| --- | --- |
+| `GET /units/:unitId` | Unit, shared textbook metadata and the current user's latest notes |
+| `POST /units/:unitId/materials` | Teacher/admin multipart PDF upload; returns 202 and queues processing |
+| `POST /materials/:id/retry` | Owner teacher/admin retry or reprocess; stale jobs can be reclaimed |
+| `DELETE /materials/:id` | Owner teacher/admin deletion; active processing must finish first |
+| `POST /units/:unitId/notes` | Generate notes from selected ready material IDs and syllabus topics |
+| `DELETE /notes/:id` | Delete a saved note set owned by the current user |
+
+`backend/tests/textbooks.test.ts` covers permissions, unit/source isolation, saved-note ownership, coverage gaps, provider-output validation, stale-source detection, scanned/text page mapping and worker ownership. Providers and database writes are mocked; actual textbook accuracy and cloud upload/OCR integration must be checked when representative PDFs are available.
+
+Verification for this feature: **81 backend tests pass** (18 textbook checks plus the existing 63), backend/frontend type checks and lint pass, and both production builds pass. Browser checks with a temporary sample API verified saved-note feedback, expandable source-page references, coverage gaps, topic/subject handoffs to MCQs and flashcards, and a 390-pixel mobile viewport without horizontal overflow. The sample server and preview were removed after verification. The migration has not been applied to the configured database.
 
 ## Architecture details
 
@@ -561,7 +628,7 @@ These are reductions in requests and query counts established by code and tests,
 - Identical concurrent GETs share a request only while in flight; settled data is not cached, and writes advance the request generation.
 - Embedding batches share duplicate input work, but query/document tasks and embedding providers stay separate.
 
-The automated suite contains **63 passing checks**. HTTP tests use fake credentials and database stubs; provider tests replace network calls with deterministic responses. One opt-in read-only check also verifies real pgvector scoring SQL against the configured database:
+The original feature-review suite contains **63 checks**, supplemented by the textbook tests described above. HTTP tests use fake credentials and database stubs; provider tests replace network calls with deterministic responses. One opt-in read-only check also verifies real pgvector scoring SQL against the configured database:
 
 ```sh
 cd backend
@@ -570,7 +637,7 @@ npm run test:retrieval:live
 
 It makes no AI calls, writes or migrations. No production records were created to verify destructive or concurrent flows. Run multi-client PostgreSQL concurrency tests and live model generation in staging before claiming those paths are fully end-to-end verified.
 
-Existing operational limits remain: ingestion is not a durable queue, caches/rate limits are per process, vector-model changes require re-indexing, and AI output requires review against original sources. No schema migration is required for this pass.
+Existing operational limits remain: ingestion is not a durable queue, caches/rate limits are per process, vector-model changes require re-indexing, and AI output requires review against original sources. The earlier efficiency pass required no schema migration; textbook notes add the migration described above.
 
 ## Project analysis and design report
 

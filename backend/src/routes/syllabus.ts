@@ -492,6 +492,15 @@ router.delete(
       await prisma.syllabusItem.delete({ where: { id: item.id } });
       res.status(204).send();
     } catch (err) {
+      if (err instanceof Error && "code" in err && err.code === "P2003") {
+        res
+          .status(409)
+          .json({
+            error:
+              "Remove the textbook PDFs attached to this unit before deleting it.",
+          });
+        return;
+      }
       next(err);
     }
   },
@@ -515,6 +524,15 @@ router.delete(
       await prisma.syllabus.delete({ where: { id: String(req.params["id"]) } });
       res.status(204).send();
     } catch (err) {
+      if (err instanceof Error && "code" in err && err.code === "P2003") {
+        res
+          .status(409)
+          .json({
+            error:
+              "Remove the textbook PDFs attached to this syllabus before deleting it.",
+          });
+        return;
+      }
       next(err);
     }
   },

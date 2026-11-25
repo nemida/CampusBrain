@@ -23,6 +23,8 @@ import flashcardsRouter from "./routes/flashcards.js";
 import profileRouter from "./routes/profile.js";
 import questionsRouter from "./routes/questions.js";
 import agentRouter from "./routes/agent.js";
+import textbooksRouter from "./routes/textbooks.js";
+import { startTextbookWorker, stopTextbookWorker } from "./lib/textbookIngestion.js";
 
 // ── Safety net ───────────────────────────────────────────────────────────────
 // LangGraph / Gemini can emit stream-parse errors as unhandled rejections that
@@ -102,6 +104,7 @@ app.use("/api/flashcards", flashcardsRouter);
 app.use("/api/profile", profileRouter);
 app.use("/api/questions", questionsRouter);
 app.use("/api/agent", agentRouter);
+app.use("/api/textbooks", textbooksRouter);
 // Health check — used by Docker healthcheck and load balancers
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
@@ -119,6 +122,7 @@ app.use(errorHandler);
 const server = app.listen(env.PORT, () => {
   console.log(`🚀  CampusBrain API running on http://localhost:${env.PORT}`);
   console.log(`    ENV: ${env.NODE_ENV}`);
+  startTextbookWorker();
 });
 
 // Stop accepting new traffic, drain requests, then close database connections.
@@ -126,6 +130,7 @@ let shuttingDown = false;
 function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
+  stopTextbookWorker();
   console.log(`[Process] ${signal}: draining connections`);
   const deadline = setTimeout(() => process.exit(1), 10_000);
   deadline.unref();

@@ -803,6 +803,103 @@ export async function deleteFlashcardSet(id: string): Promise<void> {
 
 // ── Syllabus ──────────────────────────────────────────────────────────────────
 
+export interface TextbookMaterial {
+  id: string;
+  unitId: string;
+  uploadedById: string;
+  title: string;
+  fileUrl: string;
+  fileSizeBytes: number;
+  status: "PENDING" | "PROCESSING" | "READY" | "FAILED" | "DELETING";
+  pageCount: number;
+  processedPages: number;
+  unreadablePages: number[];
+  error: string | null;
+  updatedAt: string;
+}
+
+export interface TextbookNoteSection {
+  topic: string;
+  status: "covered" | "insufficient";
+  blocks: {
+    text: string;
+    citations: {
+      materialId: string;
+      title: string;
+      fileUrl: string;
+      pageNumber: number;
+      quote: string;
+      source: string;
+    }[];
+  }[];
+}
+
+export interface TextbookNote {
+  id: string;
+  title: string;
+  createdAt: string;
+  stale: boolean;
+  content: { sections: TextbookNoteSection[] };
+}
+
+export interface TextbookUnitResponse {
+  unit: {
+    id: string;
+    title: string;
+    unitNumber: number;
+    topics: string[];
+    subject: { id: string; name: string; code: string } | null;
+  };
+  materials: TextbookMaterial[];
+  notes: TextbookNote[];
+}
+
+export function fetchTextbookUnit(
+  unitId: string,
+  signal?: AbortSignal,
+): Promise<TextbookUnitResponse> {
+  return apiFetch(`/api/textbooks/units/${encodeURIComponent(unitId)}`, signal ? { signal } : {});
+}
+
+export async function uploadTextbook(
+  unitId: string,
+  title: string,
+  file: File,
+): Promise<TextbookMaterial> {
+  const body = new FormData();
+  body.set("title", title);
+  body.set("file", file);
+  const data = await apiFetch<{ material: TextbookMaterial }>(
+    `/api/textbooks/units/${encodeURIComponent(unitId)}/materials`,
+    { method: "POST", body },
+  );
+  return data.material;
+}
+
+export function retryTextbook(id: string): Promise<{ queued: boolean }> {
+  return apiFetch(`/api/textbooks/materials/${encodeURIComponent(id)}/retry`, { method: "POST" });
+}
+
+export function deleteTextbook(id: string): Promise<void> {
+  return apiFetch(`/api/textbooks/materials/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export async function generateTextbookNotes(
+  unitId: string,
+  materialIds: string[],
+  topics: string[],
+): Promise<TextbookNote> {
+  const data = await apiFetch<{ note: TextbookNote }>(
+    `/api/textbooks/units/${encodeURIComponent(unitId)}/notes`,
+    { method: "POST", body: JSON.stringify({ materialIds, topics }) },
+  );
+  return data.note;
+}
+
+export function deleteTextbookNote(id: string): Promise<void> {
+  return apiFetch(`/api/textbooks/notes/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
 export interface ApiSyllabusItem {
   id: string;
   unitNumber: number;

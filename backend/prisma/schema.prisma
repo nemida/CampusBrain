@@ -27,6 +27,8 @@ model User {
   studyPlans       StudyPlan[]
   userActivities   UserActivity[]
   profile          UserProfile?
+  textbookMaterials TextbookMaterial[]
+  unitNotes         UnitNote[]
 }
 
 model UserProfile {
@@ -172,8 +174,72 @@ model SyllabusItem {
   chunks     SyllabusChunk[]
   subject    Subject?        @relation(fields: [subjectId], references: [id])
   syllabus   Syllabus        @relation(fields: [syllabusId], references: [id], onDelete: Cascade)
+  textbookMaterials TextbookMaterial[]
+  notes             UnitNote[]
 
   @@index([syllabusId])
+}
+
+enum MaterialStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+  DELETING
+}
+
+/// Reading material is separate from exam resources so it cannot enter the PYQ index.
+model TextbookMaterial {
+  id                  String         @id @default(cuid())
+  unitId              String
+  uploadedById        String
+  title               String
+  fileUrl             String
+  publicId            String
+  fileSizeBytes       Int
+  status              MaterialStatus @default(PENDING)
+  pageCount           Int            @default(0)
+  processedPages      Int            @default(0)
+  unreadablePages     Int[]          @default([])
+  error               String?
+  processingStartedAt DateTime?
+  processingRunId     String?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  unit                SyllabusItem   @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  uploadedBy          User           @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  chunks              TextbookChunk[]
+
+  @@index([unitId, status])
+  @@index([status, createdAt])
+}
+
+model TextbookChunk {
+  id         String                 @id @default(cuid())
+  materialId String
+  pageNumber Int
+  chunkIndex Int
+  text       String
+  source     String                 @default("text")
+  embedding  Unsupported("vector")?
+  model      String?
+  material   TextbookMaterial       @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  @@unique([materialId, chunkIndex])
+}
+
+model UnitNote {
+  id        String       @id @default(cuid())
+  userId    String
+  unitId    String
+  title     String
+  content   Json
+  inputs    Json
+  createdAt DateTime     @default(now())
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  unit      SyllabusItem @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@index([userId, unitId, createdAt])
 }
 
 model StudyPlan {
