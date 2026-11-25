@@ -35,10 +35,10 @@ import {
   type TextbookMaterial,
 } from "@/lib/api";
 
-type TextbookSearch = { branchId?: string; semester?: number; unitId?: string; subjectId?: string };
+type NemidaTextbookSearch = { branchId?: string; semester?: number; unitId?: string; subjectId?: string };
 
 export const Route = createFileRoute("/_layout/textbooks")({
-  validateSearch: (search: Record<string, unknown>): TextbookSearch => ({
+  validateSearch: (search: Record<string, unknown>): NemidaTextbookSearch => ({
     ...(typeof search["branchId"] === "string" && search["branchId"].length <= 100
       ? { branchId: search["branchId"] }
       : {}),

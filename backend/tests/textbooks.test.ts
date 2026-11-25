@@ -15,6 +15,7 @@ import {
   chunkTextbookPage,
   rankTextbookEvidence,
   validateNoteSection,
+  prepareTextbookEvidence,
   noteIsStale,
   sourceSnapshot,
   noteRequestSchema,
@@ -521,7 +522,7 @@ test("note generation validates provider citations before accepting a positive r
     "Trees",
     [evidence],
     async (messages) => {
-      assert.ok(messages[1]!.content.includes("chunk1"));
+      assert.ok(messages[1]!.content.includes('"chunkId":"S1"'));
       return {
         content: JSON.stringify({
           status: "covered",
@@ -530,8 +531,8 @@ test("note generation validates provider citations before accepting a positive r
               text: "A node can have two children.",
               citations: [
                 {
-                  chunkId: "chunk1",
-                  quote: "each node has at most two children",
+                  chunkId: "S1",
+                  excerptId: "E1",
                 },
               ],
             },
@@ -542,6 +543,7 @@ test("note generation validates provider citations before accepting a positive r
   );
   assert.equal(result.status, "covered");
   assert.equal(result.blocks[0]!.citations[0]!.pageNumber, 7);
+  assert.equal(result.blocks[0]!.citations[0]!.quote, evidence.text);
   await assert.rejects(
     generateTextbookSection("Trees", [evidence], async () => null),
     /unavailable/,
@@ -560,6 +562,124 @@ test("note generation validates provider citations before accepting a positive r
     })),
     /source validation/,
   );
+});
+
+test("server excerpt IDs preserve source text and metadata without model-written quotes", () => {
+  const prepared = prepareTextbookEvidence([evidence]);
+  assert.equal(prepared[0]!.id, "S1");
+  const section = validateNoteSection(
+    "Trees",
+    {
+      status: "covered",
+      blocks: [
+        {
+          text: "Each node has up to two children.",
+          citations: [
+            {
+              chunkId: "S1",
+              excerptId: "E1",
+              quote: "An invented quote that the server must ignore.",
+            },
+          ],
+        },
+      ],
+    },
+    prepared,
+  );
+  const citation = section.blocks[0]!.citations[0]!;
+  assert.equal(citation.quote, evidence.text);
+  assert.equal(citation.materialId, evidence.materialId);
+  assert.equal(citation.fileUrl, evidence.fileUrl);
+  assert.equal(citation.source, "scan");
+});
+
+test("prepared excerpts are bounded exact substrings, including OCR punctuation and short tails", () => {
+  const text =
+    "“Definition”\nsoft-\nware standards\u00a0and obligations. ".repeat(40) +
+    "Tiny ending";
+  const prepared = prepareTextbookEvidence([{ ...evidence, text }]);
+  assert.ok(prepared[0]!.excerpts!.length > 1);
+  for (const excerpt of prepared[0]!.excerpts!) {
+    assert.ok(text.includes(excerpt.text));
+    assert.ok(excerpt.text.length >= 20 && excerpt.text.length <= 470);
+  }
+  assert.ok(prepared[0]!.excerpts!.at(-1)!.text.endsWith("Tiny ending"));
+});
+
+test("invented or cross-source excerpt IDs remain rejected", () => {
+  const prepared = prepareTextbookEvidence([
+    evidence,
+    { ...evidence, id: "other", text: evidence.text.repeat(10) },
+  ]);
+  for (const citation of [
+    { chunkId: "S99", excerptId: "E1" },
+    { chunkId: "S1", excerptId: "E99" },
+    { chunkId: "S1", excerptId: "E2", quote: evidence.text },
+  ]) {
+    assert.throws(() =>
+      validateNoteSection(
+        "Trees",
+        {
+          status: "covered",
+          blocks: [{ text: "Notes", citations: [citation] }],
+        },
+        prepared,
+      ),
+    );
+  }
+});
+
+test("invalid note output gets one repair attempt before a validated response is accepted", async () => {
+  const { generateTextbookSection } =
+    await import("../src/lib/textbookRetrieval.js");
+  let calls = 0;
+  const result = await generateTextbookSection(
+    "Trees",
+    [evidence],
+    async (messages) => {
+      calls++;
+      if (calls === 1) return { content: '{"status":"covered","blocks":[' }; // truncated provider response
+      assert.match(messages.at(-1)!.content, /invalid_structure/);
+      return {
+        content: JSON.stringify({
+          status: "covered",
+          blocks: [
+            {
+              text: "Each node has at most two children.",
+              citations: [{ chunkId: "S1", excerptId: "E1" }],
+            },
+          ],
+        }),
+      };
+    },
+  );
+  assert.equal(calls, 2);
+  assert.equal(result.status, "covered");
+  assert.equal(result.blocks[0]!.citations[0]!.quote, evidence.text);
+});
+
+test("repeated invalid citations stop after two responses without fabricated notes", async () => {
+  const { generateTextbookSection } =
+    await import("../src/lib/textbookRetrieval.js");
+  let calls = 0;
+  await assert.rejects(
+    generateTextbookSection("Trees", [evidence], async () => {
+      calls++;
+      return {
+        content: JSON.stringify({
+          status: "covered",
+          blocks: [
+            {
+              text: "Unsupported",
+              citations: [{ chunkId: "S1", excerptId: "made-up" }],
+            },
+          ],
+        }),
+      };
+    }),
+    /after a retry/,
+  );
+  assert.equal(calls, 2);
 });
 
 test("PDF page limit is checked before textbook processing", async (context) => {

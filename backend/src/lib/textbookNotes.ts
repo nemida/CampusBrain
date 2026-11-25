@@ -12,6 +12,7 @@ export interface TextbookEvidence {
   text: string;
   source: string;
   similarity?: number;
+  excerpts?: { id: string; text: string }[];
 }
 
 export interface NoteCitation {
@@ -33,6 +34,45 @@ const normalize = (text: string) =>
   text.normalize("NFKC").replace(/\s+/g, " ").trim();
 const words = (text: string) =>
   new Set(text.toLowerCase().match(/[\p{L}\p{N}+#]+/gu) ?? []);
+
+export class NoteValidationError extends Error {
+  constructor(
+    public readonly reason:
+      | "invalid_structure"
+      | "unknown_source"
+      | "unknown_excerpt"
+      | "quote_mismatch",
+  ) {
+    super(reason);
+    this.name = "NoteValidationError";
+  }
+}
+
+/** nemida: short source/excerpt IDs let models select evidence instead of retyping
+ * UUIDs and OCR typography. Quotes are copied by the server from the original text.
+ */
+export function prepareTextbookEvidence(
+  evidence: TextbookEvidence[],
+): TextbookEvidence[] {
+  return evidence.map((source, index) => {
+    const excerpts: { id: string; text: string }[] = [];
+    let start = 0;
+    while (start < source.text.length) {
+      let end = Math.min(start + 450, source.text.length);
+      if (end < source.text.length) {
+        const boundary = source.text.lastIndexOf(" ", end);
+        if (boundary > start + 200) end = boundary;
+      }
+      // Include a short tail with its predecessor instead of creating an unusable excerpt.
+      if (source.text.length - end < 20) end = source.text.length;
+      const text = source.text.slice(start, end).trim();
+      if (text.length >= 20)
+        excerpts.push({ id: `E${excerpts.length + 1}`, text });
+      start = end;
+    }
+    return { ...source, id: `S${index + 1}`, excerpts };
+  });
+}
 
 /** Page-bounded chunks preserve PDF page numbers, including skipped/unreadable pages. */
 export function chunkTextbookPage(text: string): string[] {
@@ -90,10 +130,13 @@ const generatedSection = z.object({
         text: z.string().trim().min(1).max(3000),
         citations: z
           .array(
-            z.object({
-              chunkId: z.string(),
-              quote: z.string().trim().min(20).max(600),
-            }),
+            z
+              .object({
+                chunkId: z.string().trim().min(1),
+                excerptId: z.string().trim().min(1).optional(),
+                quote: z.string().trim().min(20).max(600).optional(),
+              })
+              .refine((citation) => !!citation.excerptId || !!citation.quote),
           )
           .min(1)
           .max(4),
@@ -110,14 +153,16 @@ export function validateNoteSection(
   value: unknown,
   evidence: TextbookEvidence[],
 ): NoteSection {
-  const section = generatedSection.parse(value);
+  const parsed = generatedSection.safeParse(value);
+  if (!parsed.success) throw new NoteValidationError("invalid_structure");
+  const section = parsed.data;
   if (section.status === "insufficient") {
     if (section.blocks.length)
-      throw new Error("Insufficient sections cannot contain unsupported notes");
+      throw new NoteValidationError("invalid_structure");
     return { topic, status: "insufficient", blocks: [] };
   }
   if (!section.blocks.length)
-    throw new Error("Covered notes need cited explanations");
+    throw new NoteValidationError("invalid_structure");
   const allowed = new Map(evidence.map((item) => [item.id, item]));
   return {
     topic,
@@ -126,20 +171,21 @@ export function validateNoteSection(
       text: block.text,
       citations: block.citations.map((citation) => {
         const source = allowed.get(citation.chunkId);
-        if (
-          !source ||
-          !normalize(source.text).includes(normalize(citation.quote))
-        ) {
-          throw new Error(
-            "Generated citation does not match the supplied textbook passage",
-          );
-        }
+        if (!source) throw new NoteValidationError("unknown_source");
+        const excerpt = citation.excerptId
+          ? source.excerpts?.find((item) => item.id === citation.excerptId)
+          : undefined;
+        if (citation.excerptId && !excerpt)
+          throw new NoteValidationError("unknown_excerpt");
+        const quote = excerpt?.text ?? citation.quote;
+        if (!quote || !normalize(source.text).includes(normalize(quote)))
+          throw new NoteValidationError("quote_mismatch");
         return {
           materialId: source.materialId,
           title: source.title,
           fileUrl: source.fileUrl,
           pageNumber: source.pageNumber,
-          quote: citation.quote,
+          quote,
           source: source.source,
         };
       }),

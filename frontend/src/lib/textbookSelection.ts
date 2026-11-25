@@ -1,6 +1,6 @@
 import type { ApiSubject, ApiSyllabus, ApiSyllabusItem } from "./api";
 
-/** Enforce the visible course scope even if an older API returns a broader list. */
+/** nemida: keep the visible course scope even if an older API returns a broader list. */
 export function textbookSubjects(
   subjects: ApiSubject[],
   branchCode: string | undefined,
