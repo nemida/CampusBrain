@@ -24,8 +24,8 @@ const primaryLinks = [
 
 // Secondary nav — only when logged in
 const secondaryLinks = [
-  { to: "/textbooks" as const, label: "Textbook Notes" },
   { to: "/student" as const, label: "My Dashboard" },
+  { to: "/textbooks" as const, label: "Textbook Notes" },
   { to: "/study" as const, label: "Study Plan" },
   { to: "/groups" as const, label: "Groups" },
   { to: "/pyq" as const, label: "PYQ Finder" },

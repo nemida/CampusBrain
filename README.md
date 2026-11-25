@@ -250,11 +250,13 @@ Textbook notes connect a syllabus unit's reading material to its topics, real pa
 ### Start using it
 
 1. Apply the new additive migration in the backend with `npm run db:migrate:deploy`, then run `npm run db:generate` and restart the API. This feature's branch includes `20261125000000_textbook_notes`; merging code alone does not create its tables.
-2. Open **Syllabus → a unit → Textbook notes**, or choose **Textbook Notes** in the signed-in navigation and select a subject/unit.
+2. Open **Syllabus → a unit → Textbook notes**, or choose **Textbook Notes** in the signed-in navigation and select a branch, semester, subject and unit.
 3. A teacher or admin uploads one or more unit PDFs, giving each a book/chapter title. Each PDF may contain **1–60 pages**, up to **25 MB**. Split longer units into several PDFs; whole-book/chapter-range selection is not included.
 4. Wait for processing, then select up to ten ready PDFs and up to eight syllabus topics per notes set. Students can see materials; teachers manage their own uploads, and admins manage any upload.
 5. Choose **Generate and save notes**. Each explanatory block includes an expandable source excerpt and a link to its original PDF page. Insufficient evidence is shown explicitly rather than replaced by general model knowledge.
 6. Choose a topic in the workspace to view its saved notes and real PYQs with years/source papers. MCQ and flashcard links open the existing practice tools with that topic and subject selected. These practice tools retain their existing generation behavior; they are not guaranteed to use only the selected textbook PDFs.
+
+The selector follows **branch → semester → subject → unit**. Subjects load only after both branch and semester are selected, units belong to the exact selected subject, and changing a parent clears its dependent selections. Course filters stay in the URL; links from the syllabus resolve their branch and semester automatically.
 
 ### Source processing and retrieval
 
@@ -306,7 +308,7 @@ All paths below are prefixed with `/api/textbooks`:
 
 `backend/tests/textbooks.test.ts` covers permissions, unit/source isolation, saved-note ownership, coverage gaps, provider-output validation, stale-source detection, scanned/text page mapping and worker ownership. Providers and database writes are mocked; actual textbook accuracy and cloud upload/OCR integration must be checked when representative PDFs are available.
 
-Verification for this feature: **81 backend tests pass** (18 textbook checks plus the existing 63), backend/frontend type checks and lint pass, and both production builds pass. Browser checks with a temporary sample API verified saved-note feedback, expandable source-page references, coverage gaps, topic/subject handoffs to MCQs and flashcards, and a 390-pixel mobile viewport without horizontal overflow. The sample server and preview were removed after verification. The migration has not been applied to the configured database.
+Verification for this feature: **83 backend tests pass** (20 textbook checks plus the existing 63), backend/frontend type checks and lint pass, and both production builds pass. Browser checks with a temporary sample API verified saved-note feedback, expandable source-page references, coverage gaps, topic/subject handoffs to MCQs and flashcards, and a 390-pixel mobile viewport without horizontal overflow. The sample server and preview were removed after verification. The migration has not been applied to the configured database.
 
 ## Architecture details
 

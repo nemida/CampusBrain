@@ -5,6 +5,11 @@ const requireBackend = createRequire(
 );
 import { after, before, test, type TestContext } from "node:test";
 import type { Server } from "node:http";
+import {
+  textbookSubjects,
+  textbookUnits,
+} from "../../frontend/src/lib/textbookSelection.js";
+import type { ApiSubject, ApiSyllabus } from "../../frontend/src/lib/api.js";
 import express from "express";
 import {
   chunkTextbookPage,
@@ -25,6 +30,75 @@ const evidence: TextbookEvidence = {
   text: "A binary tree is a tree in which each node has at most two children. Inorder traversal visits the left subtree, the root, then the right subtree.",
   source: "scan",
 };
+
+test("textbook subject choices exclude other branches and semesters even with shared names", () => {
+  const base: ApiSubject = {
+    id: "cs3",
+    code: "OS",
+    name: "Operating Systems",
+    semester: 3,
+    branch: "Computer Science",
+    branchCode: "CS",
+    paperCount: 0,
+  };
+  const subjects = [
+    base,
+    { ...base, id: "it3", branch: "Information Technology", branchCode: "IT" },
+    { ...base, id: "cs4", semester: 4 },
+  ];
+  assert.deepEqual(
+    textbookSubjects(subjects, "CS", 3).map((subject) => subject.id),
+    ["cs3"],
+  );
+  assert.deepEqual(textbookSubjects(subjects, undefined, 3), []);
+  assert.deepEqual(textbookSubjects(subjects, "CS", undefined), []);
+});
+
+test("textbook unit choices reject other subjects, unassigned units and mismatched courses", () => {
+  const unit = {
+    id: "trees",
+    subjectId: "data",
+    subjectName: "Data Structures",
+    unitNumber: 2,
+    title: "Trees",
+    topics: ["Trees"],
+    hours: null,
+  };
+  const syllabus: ApiSyllabus = {
+    id: "syllabus",
+    branchId: "cs",
+    branchName: "Computer Science",
+    branchCode: "CS",
+    semester: 3,
+    scheme: "2021",
+    description: null,
+    items: [
+      unit,
+      { ...unit, id: "other", subjectId: "operating" },
+      { ...unit, id: "unassigned", subjectId: null },
+    ],
+  };
+  const syllabi = [
+    syllabus,
+    {
+      ...syllabus,
+      id: "it",
+      branchId: "it",
+      items: [{ ...unit, id: "wrong-branch" }],
+    },
+    {
+      ...syllabus,
+      id: "sem4",
+      semester: 4,
+      items: [{ ...unit, id: "wrong-semester" }],
+    },
+  ];
+  assert.deepEqual(
+    textbookUnits(syllabi, "data", "cs", 3).map((item) => item.id),
+    ["trees"],
+  );
+  assert.deepEqual(textbookUnits(syllabi, "missing-subject", "cs", 3), []);
+});
 
 test("textbook chunks retain overlapping context without tiny duplicate tails", () => {
   const text = "a".repeat(3200);

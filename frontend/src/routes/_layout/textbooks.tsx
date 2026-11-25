@@ -15,9 +15,11 @@ import { toast } from "sonner";
 import { useAuthStore } from "@/lib/auth";
 import { LoginModal } from "@/components/campus/LoginModal";
 import { TopicPyqPanel } from "@/components/campus/PyqResults";
+import { textbookSubjects, textbookUnits } from "@/lib/textbookSelection";
 import {
   fetchBranches,
   fetchSubjects,
+  fetchSubject,
   fetchSyllabi,
   fetchTextbookUnit,
   uploadTextbook,
@@ -33,8 +35,19 @@ import {
   type TextbookMaterial,
 } from "@/lib/api";
 
+type TextbookSearch = { branchId?: string; semester?: number; unitId?: string; subjectId?: string };
+
 export const Route = createFileRoute("/_layout/textbooks")({
-  validateSearch: (search: Record<string, unknown>): { unitId?: string; subjectId?: string } => ({
+  validateSearch: (search: Record<string, unknown>): TextbookSearch => ({
+    ...(typeof search["branchId"] === "string" && search["branchId"].length <= 100
+      ? { branchId: search["branchId"] }
+      : {}),
+    ...((typeof search["semester"] === "string" || typeof search["semester"] === "number") &&
+    Number.isInteger(Number(search["semester"])) &&
+    Number(search["semester"]) >= 1 &&
+    Number(search["semester"]) <= 8
+      ? { semester: Number(search["semester"]) }
+      : {}),
     ...(typeof search["unitId"] === "string" && search["unitId"].length <= 100
       ? { unitId: search["unitId"] }
       : {}),
@@ -54,10 +67,18 @@ function TextbooksPage() {
   const [branches, setBranches] = useState<ApiBranch[]>([]);
   const [subjects, setSubjects] = useState<ApiSubject[]>([]);
   const [units, setUnits] = useState<ApiSyllabusItem[]>([]);
-  const [branchId, setBranchId] = useState("");
-  const [semester, setSemester] = useState("");
+  const branchId = search.branchId ?? "";
+  const semester = search.semester;
+  const selectedBranch = branches.find((branch) => branch.id === branchId);
+  const [subjectsLoading, setSubjectsLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const visibleSubjects = textbookSubjects(subjects, selectedBranch?.code, semester);
+  const selectedSubject = visibleSubjects.find((subject) => subject.id === search.subjectId);
+  const visibleUnits = selectedSubject
+    ? units.filter((unit) => unit.subjectId === selectedSubject.id)
+    : [];
+  const selectedUnit = visibleUnits.find((unit) => unit.id === search.unitId);
 
   useEffect(() => {
     fetchBranches()
@@ -65,46 +86,90 @@ function TextbooksPage() {
       .catch(() => setError("Couldn't load branches. Please reload."));
   }, []);
   useEffect(() => {
-    const controller = new AbortController();
-    fetchSubjects(
-      { branchId: branchId || undefined, semester: semester ? Number(semester) : undefined },
-      controller.signal,
+    // Syllabus links can contain only subject/unit IDs. Resolve their course before
+    // fetching options so entering through a deep link never loads all subjects.
+    if (
+      !user ||
+      !branches.length ||
+      (!search.subjectId && !search.unitId) ||
+      (branchId && semester)
     )
-      .then(setSubjects)
-      .catch(() => {
-        if (!controller.signal.aborted) setError("Couldn't load subjects. Please reload.");
-      });
-    return () => controller.abort();
-  }, [branchId, semester]);
-  useEffect(() => {
-    let cancelled = false;
-    setUnits([]);
-    if (!search["subjectId"]) return;
-    setLoading(true);
+      return;
+    const controller = new AbortController();
     setError(null);
-    fetchSyllabi({ subjectId: search["subjectId"] })
-      .then((syllabi) => {
-        if (!cancelled)
-          setUnits(
-            syllabi.flatMap((syllabus) =>
-              syllabus.items.map((unit) => ({
-                ...unit,
-                title: `${unit.title} (${syllabus.scheme})`,
-              })),
-            ),
-          );
+    void (async () => {
+      const subjectId =
+        search.subjectId ??
+        (await fetchTextbookUnit(search.unitId!, controller.signal)).unit.subject?.id;
+      if (!subjectId) throw new Error("Assign this unit to a subject on the syllabus page first.");
+      const subject = await fetchSubject(subjectId, controller.signal);
+      const branch = branches.find((item) => item.code === subject.branchCode);
+      if (!branch) throw new Error("The subject's branch could not be found.");
+      if (!controller.signal.aborted)
+        await navigate({
+          to: "/textbooks",
+          search: {
+            branchId: branch.id,
+            semester: subject.semester,
+            subjectId,
+            ...(search.unitId ? { unitId: search.unitId } : {}),
+          },
+          replace: true,
+        });
+    })().catch((failure) => {
+      if (!controller.signal.aborted)
+        setError(
+          failure instanceof Error ? failure.message : "Couldn't resolve the subject's course.",
+        );
+    });
+    return () => controller.abort();
+  }, [user, branches, branchId, semester, search.subjectId, search.unitId, navigate]);
+  useEffect(() => {
+    const controller = new AbortController();
+    setSubjects([]);
+    if (!user || !selectedBranch || !semester) {
+      setSubjectsLoading(false);
+      return;
+    }
+    setSubjectsLoading(true);
+    setError(null);
+    fetchSubjects({ branchId, semester }, controller.signal)
+      .then((result) => {
+        if (!controller.signal.aborted) setSubjects(result);
       })
       .catch(() => {
-        if (!cancelled)
+        if (!controller.signal.aborted) setError("Couldn't load subjects. Please reload.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setSubjectsLoading(false);
+      });
+    return () => controller.abort();
+  }, [user, branchId, selectedBranch, semester]);
+  useEffect(() => {
+    const controller = new AbortController();
+    setUnits([]);
+    if (!selectedSubject || !branchId || !semester) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    fetchSyllabi({ branchId, semester, subjectId: selectedSubject.id }, controller.signal)
+      .then((syllabi) => {
+        if (!controller.signal.aborted)
+          setUnits(textbookUnits(syllabi, selectedSubject.id, branchId, semester));
+      })
+      .catch(() => {
+        if (!controller.signal.aborted)
           setError("Couldn't load syllabus units. Please try selecting the subject again.");
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       });
     return () => {
-      cancelled = true;
+      controller.abort();
     };
-  }, [search["subjectId"]]);
+  }, [selectedSubject, branchId, semester]);
 
   return (
     <main className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6">
@@ -140,11 +205,16 @@ function TextbooksPage() {
                 className="field"
                 value={branchId}
                 onChange={(event) => {
-                  setBranchId(event.target.value);
-                  void navigate({ to: "/textbooks", search: {} });
+                  void navigate({
+                    to: "/textbooks",
+                    search: {
+                      ...(event.target.value ? { branchId: event.target.value } : {}),
+                      ...(semester ? { semester } : {}),
+                    },
+                  });
                 }}
               >
-                <option value="">All branches</option>
+                <option value="">Select branch</option>
                 {branches.map((branch) => (
                   <option key={branch.id} value={branch.id}>
                     {branch.name}
@@ -156,13 +226,18 @@ function TextbooksPage() {
               <span className="field-label">Semester</span>
               <select
                 className="field"
-                value={semester}
+                value={semester ?? ""}
                 onChange={(event) => {
-                  setSemester(event.target.value);
-                  void navigate({ to: "/textbooks", search: {} });
+                  void navigate({
+                    to: "/textbooks",
+                    search: {
+                      ...(branchId ? { branchId } : {}),
+                      ...(event.target.value ? { semester: Number(event.target.value) } : {}),
+                    },
+                  });
                 }}
               >
-                <option value="">All semesters</option>
+                <option value="">Select semester</option>
                 {[1, 2, 3, 4, 5, 6, 7, 8].map((number) => (
                   <option key={number} value={number}>
                     Semester {number}
@@ -174,16 +249,29 @@ function TextbooksPage() {
               <span className="field-label">Subject</span>
               <select
                 className="field"
-                value={search["subjectId"] ?? ""}
+                value={selectedSubject?.id ?? ""}
+                disabled={!selectedBranch || !semester || subjectsLoading}
                 onChange={(event) =>
                   void navigate({
                     to: "/textbooks",
-                    search: event.target.value ? { subjectId: event.target.value } : {},
+                    search: {
+                      ...(branchId ? { branchId } : {}),
+                      ...(semester ? { semester } : {}),
+                      ...(event.target.value ? { subjectId: event.target.value } : {}),
+                    },
                   })
                 }
               >
-                <option value="">Select subject</option>
-                {subjects.map((subject) => (
+                <option value="">
+                  {!selectedBranch || !semester
+                    ? "Choose branch and semester first"
+                    : subjectsLoading
+                      ? "Loading subjects…"
+                      : visibleSubjects.length
+                        ? "Select subject"
+                        : "No subjects for this branch and semester"}
+                </option>
+                {visibleSubjects.map((subject) => (
                   <option key={subject.id} value={subject.id}>
                     {subject.code} · {subject.name}
                   </option>
@@ -194,20 +282,30 @@ function TextbooksPage() {
               <span className="field-label">Syllabus unit</span>
               <select
                 className="field"
-                value={search["unitId"] ?? ""}
-                disabled={!search["subjectId"] || loading}
+                value={selectedUnit?.id ?? ""}
+                disabled={!selectedSubject || loading || subjectsLoading}
                 onChange={(event) =>
                   void navigate({
                     to: "/textbooks",
                     search: {
+                      ...(branchId ? { branchId } : {}),
+                      ...(semester ? { semester } : {}),
                       ...(search["subjectId"] ? { subjectId: search["subjectId"] } : {}),
                       ...(event.target.value ? { unitId: event.target.value } : {}),
                     },
                   })
                 }
               >
-                <option value="">{loading ? "Loading units…" : "Select unit"}</option>
-                {units.map((unit) => (
+                <option value="">
+                  {!selectedSubject
+                    ? "Choose a subject first"
+                    : loading
+                      ? "Loading units…"
+                      : visibleUnits.length
+                        ? "Select unit"
+                        : "No units for this subject"}
+                </option>
+                {visibleUnits.map((unit) => (
                   <option key={unit.id} value={unit.id}>
                     Unit {unit.unitNumber}: {unit.title}
                   </option>
@@ -220,17 +318,17 @@ function TextbooksPage() {
               {error}
             </p>
           )}
-          {search["unitId"] ? (
-            <UnitWorkspace key={`${user.id}:${search["unitId"]}`} unitId={search["unitId"]} />
+          {selectedUnit ? (
+            <UnitWorkspace key={`${user.id}:${selectedUnit.id}`} unitId={selectedUnit.id} />
           ) : (
             <div className="card p-8 text-center">
               <BookOpen className="mx-auto mb-3 size-8 text-muted-foreground" />
               <h2 className="font-semibold">Start with a syllabus unit</h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                Choose a subject and unit above, or open Textbook notes from a unit on the syllabus
-                page.
+                Choose a branch, semester, subject and unit above, or open Textbook notes from a
+                unit on the syllabus page.
               </p>
-              {search["subjectId"] && !loading && !units.length && (
+              {selectedSubject && !loading && !visibleUnits.length && (
                 <p className="mt-2 text-sm text-muted-foreground">
                   No syllabus units yet. A teacher or admin can add them on the{" "}
                   <Link className="text-primary underline" to="/syllabus">

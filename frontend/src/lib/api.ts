@@ -275,6 +275,14 @@ export async function fetchSubjects(
   return data.subjects;
 }
 
+export async function fetchSubject(id: string, signal?: AbortSignal): Promise<ApiSubject> {
+  const data = await apiFetch<{ subject: ApiSubject }>(
+    `/api/subjects/${encodeURIComponent(id)}`,
+    signal ? { signal } : {},
+  );
+  return data.subject;
+}
+
 export async function createSubject(body: {
   code: string;
   name: string;
@@ -921,19 +929,25 @@ export interface ApiSyllabus {
   items: ApiSyllabusItem[];
 }
 
-export async function fetchSyllabi(filters?: {
-  branchId?: string | undefined;
-  semester?: number | undefined;
-  scheme?: string | undefined;
-  subjectId?: string | undefined;
-}): Promise<ApiSyllabus[]> {
+export async function fetchSyllabi(
+  filters?: {
+    branchId?: string | undefined;
+    semester?: number | undefined;
+    scheme?: string | undefined;
+    subjectId?: string | undefined;
+  },
+  signal?: AbortSignal,
+): Promise<ApiSyllabus[]> {
   const params = new URLSearchParams();
   if (filters?.branchId) params.set("branchId", filters.branchId);
   if (filters?.semester) params.set("semester", String(filters.semester));
   if (filters?.scheme) params.set("scheme", filters.scheme);
   if (filters?.subjectId) params.set("subjectId", filters.subjectId);
   const qs = params.toString() ? `?${params.toString()}` : "";
-  const data = await apiFetch<{ syllabi: ApiSyllabus[] }>(`/api/syllabus${qs}`);
+  const data = await apiFetch<{ syllabi: ApiSyllabus[] }>(
+    `/api/syllabus${qs}`,
+    signal ? { signal } : {},
+  );
   return data.syllabi;
 }
 
