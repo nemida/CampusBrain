@@ -2,6 +2,7 @@ import { Search, Sparkles, LogOut, Menu, X, Brain } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useAuthStore } from "@/lib/auth";
+import { isStudyPath, useStudyAccess } from "@/lib/studyAccess";
 
 type Props = {
   isAdmin: boolean;
@@ -13,7 +14,6 @@ type Props = {
   botUrl: string;
 };
 
-// Primary nav — always visible
 const primaryLinks = [
   { to: "/dashboard" as const, label: "Papers" },
   { to: "/mcq" as const, label: "MCQ" },
@@ -22,7 +22,6 @@ const primaryLinks = [
   { to: "/agent" as const, label: "AI Coach" },
 ];
 
-// Secondary nav — only when logged in
 const secondaryLinks = [
   { to: "/student" as const, label: "My Dashboard" },
   { to: "/textbooks" as const, label: "Textbook Notes" },
@@ -68,6 +67,8 @@ export function Header({
   const [scrolled, setScrolled] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const { user } = useAuthStore();
+  const { allowed } = useStudyAccess();
+  const visiblePrimaryLinks = primaryLinks.filter((link) => allowed || !isStudyPath(link.to));
   const isLoggedIn = !!user;
   const displayName = userName || user?.name || user?.email || "You";
 
@@ -117,7 +118,7 @@ export function Header({
         </Link>
 
         <nav className="hidden items-center gap-1 md:flex">
-          {primaryLinks.map((l) => (
+          {visiblePrimaryLinks.map((l) => (
             <Link key={l.to} to={l.to} className={base} activeProps={{ className: active }}>
               {l.label}
             </Link>
@@ -154,20 +155,22 @@ export function Header({
           </a>
           {isLoggedIn ? (
             <div className="hidden items-center gap-1.5 sm:flex">
-              <Link
-                to="/profile"
-                className="inline-flex h-9 items-center gap-2 rounded-full border border-border bg-card pl-1 pr-3 text-xs font-medium text-foreground transition-colors hover:bg-accent"
-              >
-                <span className="flex size-7 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">
-                  {initials(displayName)}
-                </span>
-                <span className="max-w-24 truncate">{displayName}</span>
-                {isAdmin && (
-                  <span className="rounded bg-primary/10 px-1 text-[10px] font-bold uppercase text-primary">
-                    {user?.role === "ADMIN" ? "Admin" : "Faculty"}
+              {allowed && (
+                <Link
+                  to="/profile"
+                  className="inline-flex h-9 items-center gap-2 rounded-full border border-border bg-card pl-1 pr-3 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+                >
+                  <span className="flex size-7 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">
+                    {initials(displayName)}
                   </span>
-                )}
-              </Link>
+                  <span className="max-w-24 truncate">{displayName}</span>
+                  {isAdmin && (
+                    <span className="rounded bg-primary/10 px-1 text-[10px] font-bold uppercase text-primary">
+                      {user?.role === "ADMIN" ? "Admin" : "Faculty"}
+                    </span>
+                  )}
+                </Link>
+              )}
               <button
                 onClick={onLogout}
                 aria-label="Sign out"
@@ -197,7 +200,7 @@ export function Header({
         </div>
       </div>
 
-      {isLoggedIn && (
+      {allowed && (
         <div className="hidden border-t border-border/50 bg-accent/30 md:block">
           <div className="mx-auto flex h-9 max-w-7xl items-center gap-1 px-4">
             {secondaryLinks.map((l) => (
@@ -234,7 +237,7 @@ export function Header({
           <p className="mb-1 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Browse
           </p>
-          {primaryLinks.map((l) => (
+          {visiblePrimaryLinks.map((l) => (
             <Link
               key={l.to}
               to={l.to}
@@ -249,7 +252,7 @@ export function Header({
             </Link>
           ))}
 
-          {isLoggedIn && (
+          {allowed && (
             <>
               <p className="mb-1 mt-3 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 My Study

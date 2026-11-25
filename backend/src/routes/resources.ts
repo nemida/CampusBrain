@@ -14,7 +14,7 @@ import { Role, ExamType, Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { uploadFile, deleteFile } from "../lib/cloudinary.js";
-import { requireAuth } from "../middleware/requireAuth.js";
+import { requireAuth, requireStudyAccess } from "../middleware/requireAuth.js";
 import { ingestResource } from "../lib/ingestion.js";
 import { retrieveChunks } from "../lib/retriever.js";
 import { detectUploadType } from "../lib/uploadValidation.js";
@@ -170,6 +170,7 @@ const byTopicQuerySchema = z.object({
 
 router.get(
   "/by-topic",
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const query = byTopicQuerySchema.parse(req.query);

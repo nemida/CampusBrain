@@ -8,7 +8,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import rateLimit from "express-rate-limit";
 import { prisma } from "../lib/prisma.js";
-import { requireAuth } from "../middleware/requireAuth.js";
+import { requireStudyAccess } from "../middleware/requireAuth.js";
 import {
   groupDuplicates,
   rankCandidates,
@@ -39,7 +39,7 @@ const CONCURRENCY = 5;
 
 router.post(
   "/search",
-  requireAuth(),
+  requireStudyAccess,
   limiter,
   async (req: Request, res: Response, next: NextFunction) => {
     try {

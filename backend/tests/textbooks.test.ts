@@ -249,6 +249,7 @@ let prisma: typeof import("../src/lib/prisma.js").prisma;
 let signAccessToken: typeof import("../src/lib/jwt.js").signAccessToken;
 before(async () => {
   Object.assign(process.env, {
+    STUDY_FEATURE_ACCESS: "signed-in",
     NODE_ENV: "test",
     DATABASE_URL: "postgresql://test:test@127.0.0.1:1/test",
     DIRECT_URL: "postgresql://test:test@127.0.0.1:1/test",

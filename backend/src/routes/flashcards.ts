@@ -11,7 +11,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
-import { requireAuth } from "../middleware/requireAuth.js";
+import { requireStudyAccess } from "../middleware/requireAuth.js";
 import { chatComplete, extractJSON } from "../lib/ai.js";
 import { retrieveChunks } from "../lib/retriever.js";
 import { lockRow } from "../lib/rowLocks.js";
@@ -111,7 +111,7 @@ Return a JSON object with a "cards" array of objects with:
 
 router.get(
   "/",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const sets = await prisma.flashcardSet.findMany({
@@ -155,7 +155,7 @@ const createSetSchema = z.object({
 
 router.post(
   "/",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = createSetSchema.parse(req.body);
@@ -186,7 +186,7 @@ const generateSchema = z.object({
 
 router.post(
   "/generate",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = generateSchema.parse(req.body);
@@ -244,7 +244,7 @@ const reviewSchema = z.object({
 
 router.patch(
   "/cards/:cardId/review",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { quality } = reviewSchema.parse(req.body);
@@ -295,7 +295,7 @@ router.patch(
 
 router.get(
   "/:id",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const set = await prisma.flashcardSet.findUnique({
@@ -328,7 +328,7 @@ router.get(
 
 router.get(
   "/:id/all",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const set = await prisma.flashcardSet.findUnique({
@@ -361,7 +361,7 @@ const addCardSchema = z.object({
 
 router.post(
   "/:id/cards",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = addCardSchema.parse(req.body);
@@ -393,7 +393,7 @@ router.post(
 
 router.delete(
   "/:id",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const set = await prisma.flashcardSet.findUnique({

@@ -17,6 +17,7 @@ import {
 
 import { TopicPyqPanel } from "@/components/campus/PyqResults";
 import { useAuthStore } from "@/lib/auth";
+import { useStudyAccess } from "@/lib/studyAccess";
 import { toneStyle } from "@/lib/tone";
 import {
   fetchSyllabi,
@@ -727,7 +728,7 @@ function UnitRow({
   isEditor: boolean;
   onItemsChange: ItemsUpdater;
 }) {
-  const { user } = useAuthStore();
+  const { allowed } = useStudyAccess();
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ title: "", topics: "", hours: "" });
   const [saving, setSaving] = useState(false);
@@ -786,18 +787,20 @@ function UnitRow({
             {item.title.replace(/^Unit \d+:?\s*/i, "")}
           </p>
           {item.hours ? <span className="chip">{item.hours} hrs</span> : null}
-          <Link
-            to="/textbooks"
-            search={{
-              unitId: item.id,
-              ...((subjectId ?? item.subjectId)
-                ? { subjectId: (subjectId ?? item.subjectId)! }
-                : {}),
-            }}
-            className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-          >
-            <BookOpen className="size-3.5" /> Textbook notes
-          </Link>
+          {allowed && (
+            <Link
+              to="/textbooks"
+              search={{
+                unitId: item.id,
+                ...((subjectId ?? item.subjectId)
+                  ? { subjectId: (subjectId ?? item.subjectId)! }
+                  : {}),
+              }}
+              className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+            >
+              <BookOpen className="size-3.5" /> Textbook notes
+            </Link>
+          )}
           {isEditor && !editing && (
             <span className="ml-auto flex items-center gap-0.5">
               <button
@@ -821,20 +824,26 @@ function UnitRow({
         {!editing && (
           <>
             <div className="mt-2 flex flex-wrap gap-1.5">
-              {item.topics.map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setActiveTopic((cur) => (cur === t ? null : t))}
-                  aria-pressed={activeTopic === t}
-                  title="See past exam questions on this topic"
-                  className={`chip ${activeTopic === t ? "chip-active" : "chip-tone"}`}
-                >
-                  {t}
-                </button>
-              ))}
+              {item.topics.map((t) =>
+                allowed ? (
+                  <button
+                    key={t}
+                    onClick={() => setActiveTopic((cur) => (cur === t ? null : t))}
+                    aria-pressed={activeTopic === t}
+                    title="See past exam questions on this topic"
+                    className={`chip ${activeTopic === t ? "chip-active" : "chip-tone"}`}
+                  >
+                    {t}
+                  </button>
+                ) : (
+                  <span key={t} className="chip chip-tone">
+                    {t}
+                  </span>
+                ),
+              )}
             </div>
 
-            {activeTopic && (
+            {allowed && activeTopic && (
               <div className="mt-3 space-y-2 rounded-xl bg-muted/50 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs font-medium text-foreground">
@@ -848,17 +857,11 @@ function UnitRow({
                     <X className="size-3.5" />
                   </button>
                 </div>
-                {user ? (
-                  <TopicPyqPanel
-                    topic={activeTopic}
-                    subjectId={subjectId ?? item.subjectId ?? undefined}
-                    context={item.subjectName ?? undefined}
-                  />
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Sign in to see the exact past-paper questions for this topic.
-                  </p>
-                )}
+                <TopicPyqPanel
+                  topic={activeTopic}
+                  subjectId={subjectId ?? item.subjectId ?? undefined}
+                  context={item.subjectName ?? undefined}
+                />
               </div>
             )}
           </>

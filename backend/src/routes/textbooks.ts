@@ -4,7 +4,7 @@ import rateLimit from "express-rate-limit";
 import { Prisma, Role } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
-import { requireAuth } from "../middleware/requireAuth.js";
+import { requireAuth, requireStudyAccess } from "../middleware/requireAuth.js";
 import { uploadFile, deleteFile } from "../lib/cloudinary.js";
 import { detectUploadType } from "../lib/uploadValidation.js";
 import {
@@ -24,7 +24,7 @@ import {
 } from "../lib/textbookRetrieval.js";
 
 const router = Router();
-router.use(requireAuth());
+router.use(requireStudyAccess);
 const editors = requireAuth([Role.TEACHER, Role.ADMIN]);
 const expensive = rateLimit({
   windowMs: 10 * 60_000,

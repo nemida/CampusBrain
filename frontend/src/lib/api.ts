@@ -117,6 +117,10 @@ export class ApiError extends Error {
   }
 }
 
+export function fetchStudyAccess(): Promise<{ access: "admin" | "signed-in" }> {
+  return apiFetch("/api/config/study-access", { cache: "no-store" }, true);
+}
+
 // ── Core fetch helper ─────────────────────────────────────────────────────────
 
 const reads = new RequestPool();

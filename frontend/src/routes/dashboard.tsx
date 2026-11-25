@@ -35,6 +35,7 @@ import {
   type ApiSyllabus,
 } from "@/lib/api";
 import { useAuthStore, logout as authLogout } from "@/lib/auth";
+import { useStudyAccess } from "@/lib/studyAccess";
 import { toneStyle } from "@/lib/tone";
 
 export const Route = createFileRoute("/dashboard")({
@@ -66,6 +67,7 @@ const selectClass = "field";
 function Dashboard() {
   const search = Route.useSearch();
   const { user } = useAuthStore();
+  const { allowed: canUseStudyTools } = useStudyAccess();
   const isAdmin = user?.role === "ADMIN" || user?.role === "TEACHER";
 
   const [loginOpen, setLoginOpen] = useState(false);
@@ -608,7 +610,7 @@ function Dashboard() {
                                 e.preventDefault();
                                 window.open(p.pdfUrl, "_blank", "noopener,noreferrer");
                                 // Track download for personalised dashboard
-                                if (user)
+                                if (canUseStudyTools)
                                   trackActivity({
                                     resourceId: p.id,
                                     activityType: "DOWNLOAD",
@@ -621,7 +623,7 @@ function Dashboard() {
                             </a>
                             <button
                               onClick={() => {
-                                if (user)
+                                if (canUseStudyTools)
                                   trackActivity({ resourceId: p.id, activityType: "VIEW" }).catch(
                                     () => undefined,
                                   );

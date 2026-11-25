@@ -7,12 +7,13 @@
  *
  * dashboard.tsx keeps its own Header so it isn't affected.
  */
-import { createFileRoute, Outlet } from "@tanstack/react-router";
+import { createFileRoute, Outlet, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Header } from "@/components/campus/Header";
 import { LoginModal } from "@/components/campus/LoginModal";
 import { useAuthStore, logout as authLogout } from "@/lib/auth";
 import { fetchBotUrl } from "@/lib/api";
+import { isStudyPath, useStudyAccess } from "@/lib/studyAccess";
 
 export const Route = createFileRoute("/_layout")({
   component: SharedLayout,
@@ -20,6 +21,9 @@ export const Route = createFileRoute("/_layout")({
 
 function SharedLayout() {
   const { user } = useAuthStore();
+  const routeId = useRouterState({ select: (state) => state.matches.at(-1)?.routeId ?? "" });
+  const studyRoute = isStudyPath(routeId.replace(/^\/_layout/, ""));
+  const { allowed, checking, unavailable } = useStudyAccess();
   const isAdmin = user?.role === "ADMIN" || user?.role === "TEACHER";
 
   const [loginOpen, setLoginOpen] = useState(false);
@@ -45,7 +49,23 @@ function SharedLayout() {
           void authLogout();
         }}
       />
-      <Outlet key={user?.id ?? "anonymous"} />
+      {studyRoute && !allowed ? (
+        <main className="mx-auto max-w-7xl px-6 py-10">
+          {checking ? (
+            <p role="status">Checking study tool access…</p>
+          ) : unavailable ? (
+            <p role="status">Could not check study tool access. Refresh to try again.</p>
+          ) : user ? (
+            <p>Study tools are currently restricted to admin accounts.</p>
+          ) : (
+            <button className="btn btn-primary" onClick={() => setLoginOpen(true)}>
+              Sign in to access study tools
+            </button>
+          )}
+        </main>
+      ) : (
+        <Outlet key={user?.id ?? "anonymous"} />
+      )}
       <LoginModal
         open={loginOpen}
         onClose={() => setLoginOpen(false)}

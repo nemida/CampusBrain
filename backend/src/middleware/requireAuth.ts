@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { Role } from "@prisma/client";
 import { verifyAccessToken } from "../lib/jwt.js";
+import { env } from "../lib/env.js";
 
 /**
  * Verifies the Bearer token in Authorization header and attaches
@@ -30,3 +31,7 @@ export function requireAuth(allowedRoles?: Role[]) {
     }
   };
 }
+
+export const requireStudyAccess = requireAuth(
+  env.STUDY_FEATURE_ACCESS === "admin" ? [Role.ADMIN] : undefined,
+);

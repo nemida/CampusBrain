@@ -7,7 +7,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
-import { requireAuth } from "../middleware/requireAuth.js";
+import { requireStudyAccess } from "../middleware/requireAuth.js";
 import { chatComplete, extractJSON } from "../lib/ai.js";
 import { retrieveChunks } from "../lib/retriever.js";
 import { parseGeneratedQuestions } from "../lib/studyGeneration.js";
@@ -83,7 +83,7 @@ const generateSchema = z.object({
 
 router.post(
   "/generate",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = generateSchema.parse(req.body);
@@ -168,7 +168,7 @@ const submitAnswersSchema = z.object({
 
 router.post(
   "/sessions/:id/answer",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = submitAnswersSchema.parse(req.body);
@@ -294,7 +294,7 @@ router.post(
 
 router.get(
   "/sessions",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       // Fetch answered-question IDs so we can tell attempted (answeredCount > 0)
@@ -325,7 +325,7 @@ router.get(
 
 router.get(
   "/sessions/:id",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const session = await prisma.mCQSession.findUnique({
@@ -370,7 +370,7 @@ router.get(
 
 router.delete(
   "/sessions/:id",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const session = await prisma.mCQSession.findUnique({

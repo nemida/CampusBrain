@@ -32,6 +32,7 @@ const envSchema = z.object({
     .default("development"),
   FRONTEND_URL: z.string().url().default("http://localhost:3000"),
   CORS_ORIGINS: z.string().default(""),
+  STUDY_FEATURE_ACCESS: z.enum(["admin", "signed-in"]).default("admin"),
 });
 
 const parsed = envSchema.safeParse(process.env);

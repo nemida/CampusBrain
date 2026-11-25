@@ -24,6 +24,7 @@ import {
   useMotionTemplate,
 } from "motion/react";
 import { fetchBotUrl } from "@/lib/api";
+import { isStudyPath, useStudyAccess } from "@/lib/studyAccess";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -372,6 +373,8 @@ function ToolLivePreview({ type }: { type: (typeof tools)[number]["previewType"]
 /* -------------------------------------------------------------------------- */
 
 function LandingPage() {
+  const { allowed } = useStudyAccess();
+  const visibleTools = tools.filter((tool) => allowed || !isStudyPath(tool.to));
   const [botUrl, setBotUrl] = useState<string | null>(null);
   useEffect(() => {
     fetchBotUrl()
@@ -460,16 +463,18 @@ function LandingPage() {
               { to: "/syllabus" as const, label: "Syllabus" },
               { to: "/mcq" as const, label: "Quizzes" },
               { to: "/flashcards" as const, label: "Flashcards" },
-            ].map((item) => (
-              <Link
-                key={item.to}
-                to={item.to}
-                className="group relative hidden text-muted-foreground transition-colors hover:text-foreground sm:block"
-              >
-                {item.label}
-                <span className="absolute -bottom-1 left-0 h-[2px] w-0 bg-primary transition-all duration-300 group-hover:w-full" />
-              </Link>
-            ))}
+            ]
+              .filter((item) => allowed || !isStudyPath(item.to))
+              .map((item) => (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  className="group relative hidden text-muted-foreground transition-colors hover:text-foreground sm:block"
+                >
+                  {item.label}
+                  <span className="absolute -bottom-1 left-0 h-[2px] w-0 bg-primary transition-all duration-300 group-hover:w-full" />
+                </Link>
+              ))}
 
             <Magnetic strength={0.22}>
               <Link
@@ -833,7 +838,7 @@ function LandingPage() {
           </div>
 
           <div className="mt-12 divide-y divide-border border-y border-border">
-            {tools.map((t, idx) => {
+            {visibleTools.map((t, idx) => {
               const Icon = t.icon;
               const isHovered = hoveredTool === t.n;
 
@@ -986,13 +991,15 @@ function LandingPage() {
             </div>
           </div>
 
-          <Link
-            to="/groups"
-            className="mt-7 inline-flex items-center gap-1.5 font-semibold text-primary group-hover:underline"
-          >
-            Set up a group
-            <ArrowRight className="size-4 transition-transform group-hover:translate-x-1.5" />
-          </Link>
+          {allowed && (
+            <Link
+              to="/groups"
+              className="mt-7 inline-flex items-center gap-1.5 font-semibold text-primary group-hover:underline"
+            >
+              Set up a group
+              <ArrowRight className="size-4 transition-transform group-hover:translate-x-1.5" />
+            </Link>
+          )}
         </motion.div>
 
         {/* Faculty Card */}

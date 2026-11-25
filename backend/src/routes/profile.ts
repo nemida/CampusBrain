@@ -7,7 +7,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
-import { requireAuth } from "../middleware/requireAuth.js";
+import { requireStudyAccess } from "../middleware/requireAuth.js";
 
 const router = Router();
 
@@ -40,7 +40,7 @@ async function getOrCreateProfile(userId: string) {
 // GET /api/profile
 router.get(
   "/",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const profile = await getOrCreateProfile(req.user!.id);
@@ -60,7 +60,7 @@ const updateSchema = z.object({
 
 router.put(
   "/",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = updateSchema.parse(req.body);
@@ -98,7 +98,7 @@ router.put(
 // POST /api/profile/subjects/:subjectId
 router.post(
   "/subjects/:subjectId",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const subjectId = String(req.params["subjectId"]);
@@ -135,7 +135,7 @@ router.post(
 // DELETE /api/profile/subjects/:subjectId
 router.delete(
   "/subjects/:subjectId",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const subjectId = String(req.params["subjectId"]);

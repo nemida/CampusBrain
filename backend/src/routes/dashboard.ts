@@ -6,7 +6,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import { ActivityType, Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
-import { requireAuth } from "../middleware/requireAuth.js";
+import { requireStudyAccess } from "../middleware/requireAuth.js";
 import { subjectPlanProgress } from "../lib/planProgress.js";
 
 const router = Router();
@@ -55,7 +55,7 @@ function normalizeTopic(raw: string | null | undefined): string {
 
 router.get(
   "/me",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user!.id;
@@ -470,7 +470,7 @@ const DEDUPE_WINDOW_MS: Record<"VIEW" | "DOWNLOAD", number> = {
 
 router.post(
   "/activity",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = activitySchema.parse(req.body);

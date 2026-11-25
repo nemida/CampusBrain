@@ -11,7 +11,7 @@
  */
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
-import { requireAuth } from "../middleware/requireAuth.js";
+import { requireStudyAccess } from "../middleware/requireAuth.js";
 import { streamAgent, type ChatTurn } from "../lib/agent.js";
 
 const router = Router();
@@ -31,7 +31,7 @@ const chatSchema = z.object({
 
 router.post(
   "/chat",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = chatSchema.parse(req.body);

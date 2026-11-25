@@ -14,7 +14,7 @@ import { z } from "zod";
 import multer from "multer";
 import rateLimit from "express-rate-limit";
 import { prisma } from "../lib/prisma.js";
-import { requireAuth } from "../middleware/requireAuth.js";
+import { requireStudyAccess } from "../middleware/requireAuth.js";
 import { lockPlan } from "../lib/rowLocks.js";
 import { chatComplete, extractJSON } from "../lib/ai.js";
 import { scoreTopicsByPYQFrequency } from "../lib/retriever.js";
@@ -344,7 +344,7 @@ async function extractExamsFromPDF(
 
 router.post(
   "/parse-timetable",
-  requireAuth(),
+  requireStudyAccess,
   heavyLimiter,
   uploadPdf,
   async (req: Request, res: Response, next: NextFunction) => {
@@ -396,7 +396,7 @@ const generateSchema = z.object({
 
 router.post(
   "/generate",
-  requireAuth(),
+  requireStudyAccess,
   heavyLimiter,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -593,7 +593,7 @@ router.post(
 
 router.get(
   "/",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const plans = await prisma.studyPlan.findMany({
@@ -613,7 +613,7 @@ router.get(
 
 router.get(
   "/:id",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       // Ownership is part of the query, so someone else's plan looks the same as a missing one
@@ -636,7 +636,7 @@ router.get(
 
 router.patch(
   "/:id/days/:dayId",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { isCompleted } = z
@@ -710,7 +710,7 @@ router.patch(
 
 router.patch(
   "/:id/days/:dayId/sessions/:index",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { done } = z.object({ done: z.boolean() }).parse(req.body);
@@ -782,7 +782,7 @@ router.patch(
 
 router.post(
   "/:id/catch-up",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user!.id;
@@ -891,7 +891,7 @@ router.post(
 
 router.delete(
   "/:id",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { count } = await prisma.studyPlan.deleteMany({

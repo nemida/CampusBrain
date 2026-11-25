@@ -89,6 +89,10 @@ const globalLimiter = rateLimit({
 
 app.use(globalLimiter);
 
+app.get("/api/config/study-access", (_req, res) => {
+  res.set("Cache-Control", "no-store").json({ access: env.STUDY_FEATURE_ACCESS });
+});
+
 // ── Routes ───────────────────────────────────────────────────────────────────
 app.use("/api/auth", authLimiter, authRouter);
 app.use("/api/branches", branchesRouter);

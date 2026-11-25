@@ -21,7 +21,7 @@ import { randomInt } from "node:crypto";
 import { z } from "zod";
 import rateLimit from "express-rate-limit";
 import { prisma } from "../lib/prisma.js";
-import { requireAuth } from "../middleware/requireAuth.js";
+import { requireStudyAccess } from "../middleware/requireAuth.js";
 import { lockRow } from "../lib/rowLocks.js";
 import { scoreTopicsByPYQFrequency } from "../lib/retriever.js";
 import { aggregateGroupWeakTopics } from "../lib/topics.js";
@@ -262,7 +262,7 @@ const createGroupSchema = z.object({
 
 router.post(
   "/",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = createGroupSchema.parse(req.body);
@@ -304,7 +304,7 @@ router.post(
 
 router.get(
   "/",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user!.id;
@@ -327,7 +327,7 @@ const joinSchema = z.object({ inviteCode: z.string().trim().min(1).max(20) });
 
 router.post(
   "/join",
-  requireAuth(),
+  requireStudyAccess,
   joinLimiter,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -383,7 +383,7 @@ router.post(
 
 router.get(
   "/:id",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user!.id;
@@ -471,7 +471,7 @@ const updateGroupSchema = createGroupSchema
 
 router.patch(
   "/:id",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user!.id;
@@ -500,7 +500,7 @@ router.patch(
 
 router.delete(
   "/:id",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const groupId = String(req.params["id"]);
@@ -526,7 +526,7 @@ router.delete(
 
 router.delete(
   "/:id/leave",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user!.id;
@@ -582,7 +582,7 @@ router.delete(
 
 router.post(
   "/:id/transfer",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user!.id;
@@ -637,7 +637,7 @@ router.post(
 
 router.delete(
   "/:id/members/:userId",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user!.id;
@@ -685,7 +685,7 @@ router.delete(
 
 router.post(
   "/:id/invite/regenerate",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const groupId = String(req.params["id"]);
@@ -767,7 +767,7 @@ async function loadSharedSubjectIds(memberIds: string[]): Promise<string[]> {
 
 router.get(
   "/:id/plan/options",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const groupId = String(req.params["id"]);
@@ -819,7 +819,7 @@ router.get(
 
 router.post(
   "/:id/plan/generate",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user!.id;
@@ -1026,7 +1026,7 @@ const groupPlanSchema = z.object({
 
 router.post(
   "/:id/plan",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user!.id;
@@ -1073,7 +1073,7 @@ router.post(
 
 router.delete(
   "/:id/plan",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const groupId = String(req.params["id"]);
@@ -1092,7 +1092,7 @@ router.delete(
 
 router.get(
   "/:id/progress",
-  requireAuth(),
+  requireStudyAccess,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user!.id;
